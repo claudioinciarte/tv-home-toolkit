@@ -4,6 +4,14 @@ Home personalizada para Google TV y Fire TV, con herramientas ADB de instalació
 
 Derivado de [Gathin23/tv-vibehack](https://github.com/Gathin23/tv-vibehack), bajo MIT; Outfit mantiene su licencia OFL. La redirección integrada de Fire TV usa APIs de Android y no incluye código ni APK de Home on Fire.
 
+## Origen y créditos
+
+El proyecto original es **[tv-vibehack](https://github.com/Gathin23/tv-vibehack)**, creado por **[Gathin / Gathin23](https://github.com/Gathin23)**. Su launcher y diseño son la base de este repositorio; el crédito por ese trabajo corresponde a su autor.
+
+Esta adaptación añade los procedimientos de Google TV y Fire TV, la redirección integrada de Inicio, las herramientas de recuperación y las skills. Conservamos el aviso de copyright y la licencia MIT originales.
+
+Consulta [CREDITS.md](CREDITS.md) para el origen exacto del código y las licencias de terceros.
+
 ## Dos casos reales
 
 | Equipo probado | Método | Resultado |
