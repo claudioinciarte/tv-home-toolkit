@@ -1,0 +1,13 @@
+.local/
+artifacts/
+**/.gradle/
+**/build/
+**/local.properties
+**/adbkey*
+*.keystore
+*.jks
+*.apk
+.env
+.env.*
+__pycache__/
+.DS_Store

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_redirect_title">Inicio del mando</string>
+    <string name="home_redirect_toggle">Abrir Home con el botón Inicio</string>
+    <string name="home_redirect_explanation">Vuelve a este launcher al pulsar Inicio.\n\nDesactiva esta opción para volver al inicio de Amazon.</string>
+    <string name="home_redirect_loading">Abriendo Home…</string>
+    <string name="home_redirect_service_label">Home · botón Inicio del mando</string>
+    <string name="home_redirect_service_description">Abre Home cuando aparece el inicio de Amazon. Solo usa el nombre de la app y de la ventana; no lee ni registra el contenido de la pantalla.</string>
+    <string name="home_redirect_close">Cerrar</string>
+    <string name="home_redirect_system_settings">Ajustes de Fire TV</string>
+    <string name="home_redirect_permission_title">Activa Home en Accesibilidad</string>
+    <string name="home_redirect_permission_message">Activa el servicio Home en los ajustes de Accesibilidad. Si tu Fire TV no muestra el servicio, termina la activación desde el ordenador.</string>
+    <string name="home_redirect_accessibility">Abrir Accesibilidad</string>
+</resources>

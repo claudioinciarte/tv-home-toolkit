@@ -1,0 +1,3 @@
+interface:
+  display_name: "Telemetría TV"
+  short_description: "Revisa telemetría y aplica limpieza reversible"

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_redirect_title">Home-Taste der Fernbedienung</string>
+    <string name="home_redirect_toggle">Home mit der Home-Taste öffnen</string>
+    <string name="home_redirect_explanation">Öffnet diesen Launcher beim Drücken der Home-Taste.\n\nDeaktivieren, um wieder die Amazon-Startseite zu verwenden.</string>
+    <string name="home_redirect_loading">Home wird geöffnet…</string>
+    <string name="home_redirect_service_label">Home · Home-Taste</string>
+    <string name="home_redirect_service_description">Öffnet Home, wenn die Amazon-Startseite erscheint. Verwendet nur App- und Fensternamen; Bildschirminhalte werden weder gelesen noch aufgezeichnet.</string>
+    <string name="home_redirect_close">Schließen</string>
+    <string name="home_redirect_system_settings">Fire TV-Einstellungen</string>
+    <string name="home_redirect_permission_title">Home unter Bedienungshilfen aktivieren</string>
+    <string name="home_redirect_permission_message">Aktiviere den Home-Dienst unter Bedienungshilfen. Wenn dein Fire TV den Dienst nicht anzeigt, schließe die Aktivierung am Computer ab.</string>
+    <string name="home_redirect_accessibility">Bedienungshilfen öffnen</string>
+    <string name="dream_name">Uhr</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Portable defaults; absent packages are ignored. Customize for the device owner. -->
+    <string-array name="dock_apps">
+        <item>com.android.vending</item>
+        <item>com.amazon.venezia</item>
+        <item>com.google.android.youtube.tv</item>
+        <item>org.videolan.vlc</item>
+    </string-array>
+    <string-array name="hidden_apps" />
+    <integer name="columns">4</integer>
+</resources>

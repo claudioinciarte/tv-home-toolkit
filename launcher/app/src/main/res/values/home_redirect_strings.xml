@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_redirect_title">Remote Home button</string>
+    <string name="home_redirect_toggle">Open Home with the Home button</string>
+    <string name="home_redirect_explanation">Return to this launcher when you press Home.\n\nTurn this off to use Amazon Home again.</string>
+    <string name="home_redirect_loading">Opening Home…</string>
+    <string name="home_redirect_service_label">Home · remote Home button</string>
+    <string name="home_redirect_service_description">Opens Home when the Amazon home screen appears. Uses window package and class names only; screen content is not read or recorded.</string>
+    <string name="home_redirect_close">Close</string>
+    <string name="home_redirect_system_settings">Fire TV settings</string>
+    <string name="home_redirect_permission_title">Enable Home in Accessibility</string>
+    <string name="home_redirect_permission_message">Enable the Home service in Accessibility settings. If your Fire TV does not show the service, finish activation from your computer.</string>
+    <string name="home_redirect_accessibility">Open Accessibility</string>
+</resources>
