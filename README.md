@@ -13,6 +13,17 @@ Derivado de [Gathin23/tv-vibehack](https://github.com/Gathin23/tv-vibehack), baj
 
 Los tiempos empiezan al detectar Amazon Home, no en la pulsación física. Se usó ADB. Reinicio y mando físico no probados. Otros firmwares necesitan nueva comprobación.
 
+## APK preparado
+
+La [primera versión descargable](https://github.com/claudioinciarte/tv-home-toolkit/releases/tag/v0.1.0) incluye tvhome-debug.apk y SHA256SUMS. Con gh autenticado en este repositorio privado:
+
+~~~powershell
+gh release download v0.1.0 --repo claudioinciarte/tv-home-toolkit --pattern tvhome-debug.apk --pattern SHA256SUMS --dir ./artifacts
+Get-FileHash ./artifacts/tvhome-debug.apk -Algorithm SHA256
+~~~
+
+Comparar el hash con SHA256SUMS antes de instalar. Es un APK debug: conserva la clave del equipo de compilación fuera de Git para actualizar instalaciones compatibles. Compilar en otro equipo puede producir una firma distinta.
+
 ## Inicio rápido — PowerShell 7.2+
 
 Requisitos: Android Platform Tools (adb en PATH o -Adb), Android SDK y JDK compatible con AGP. Proyecto: AGP 9.4.0, Gradle 9.6.0, compileSdk 37, minSdk 26, targetSdk 29. Se usó el JBR de Android Studio. La primera compilación necesita red para dependencias.
