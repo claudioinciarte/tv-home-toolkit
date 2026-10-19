@@ -6,7 +6,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewOutlineProvider;
-import android.view.animation.OvershootInterpolator;
+import android.view.animation.DecelerateInterpolator;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -118,9 +118,9 @@ final class PlexShelfAdapter extends RecyclerView.Adapter<PlexShelfAdapter.Holde
         });
         holder.card.setOnFocusChangeListener((view, focused) -> {
             float density = view.getResources().getDisplayMetrics().density;
-            view.animate().scaleX(focused ? 1.12f : 1f).scaleY(focused ? 1.12f : 1f)
-                    .translationY(focused ? -3f * density : 0f).setDuration(220)
-                    .setInterpolator(new OvershootInterpolator(1.2f)).start();
+            view.animate().scaleX(focused ? 1.06f : 1f).scaleY(focused ? 1.06f : 1f)
+                    .translationY(0f).translationZ(focused ? 8f * density : 0f).setDuration(170)
+                    .setInterpolator(new DecelerateInterpolator()).start();
             int index = holder.getBindingAdapterPosition();
             if (focused && index != RecyclerView.NO_POSITION) listener.onPlexFocused(index, item, view);
         });

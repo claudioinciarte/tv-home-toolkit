@@ -249,7 +249,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Return to the app we left from, or the same slot if that app is gone. Always refocus: after
         // reload() the view that holds focus may no longer show the app it had.
         grid.post(() -> {
-            if (returnPlexKey != null && plexHomeVisible) {
+            if (returnKey == null && returnPlexKey != null && plexHomeVisible) {
                 int index = plexPosters.positionOf(returnPlexKey);
                 focusPlexItem(index >= 0 ? index : returnPlexSlot);
                 refreshPlexIfStale();
@@ -295,7 +295,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     public void onTileFocused(int position, View card) {
         lastFocused = position;
         lastFocusedKey = adapter.keyAt(position);
-        lastPlexFocusedKey = null;
         // Tile rect in root coordinates, using layout positions (ignores the scale animation).
         Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
         root.offsetDescendantRectToMyCoords(card, r);
@@ -589,7 +588,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                         if (!key.equals(plexBackdropKey)) return;
                         if (error == null && bitmap != null) {
                             plexBackdrop.setImageBitmap(bitmap);
-                            plexBackdrop.animate().alpha(0.32f).setDuration(320).start();
+                            plexBackdrop.animate().alpha(0.40f).setDuration(320).start();
                         }
                     }));
         }).start();

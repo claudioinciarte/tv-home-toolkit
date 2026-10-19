@@ -82,6 +82,8 @@ Se descubren al abrir este repositorio en Codex. También se pueden copiar las c
 
 ## Documentación
 
+- [Plex Home: configuración y seguridad](docs/plex-home.md)
+- [Plex Home: diseño y validación visual](docs/plex-home-ux.md)
 - [Google TV](docs/cases/google-tv.md)
 - [Fire TV y velocidad](docs/cases/fire-tv.md)
 - [Telemetría](docs/telemetry.md)

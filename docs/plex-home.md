@@ -6,6 +6,8 @@ Version 2.3 adds an optional “Recently added on Plex” carousel in the open a
 
 Link the launcher at Plex with the four digit code shown on the TV. Android isolates app data, so the launcher cannot read the signed-in account from the Plex app. The launcher keeps its own Plex session and shows the account name it linked.
 
+This is Plex's supported PIN flow: Plex creates a temporary code, the user claims it on their Plex account, and Plex returns an access token for that client. Android assigns apps separate identities and restricts access to each app's private files, so the launcher cannot safely reuse Plex's locally stored token. The Fire TV system can identify its own Amazon account, but that does not grant a third-party launcher access to a Plex session. See [Android's app sandbox](https://developer.android.com/guide/components/fundamentals) and [Plex's authentication API](https://developer.plex.tv/pms/).
+
 Choose one or more servers and either all movie and series libraries on those servers or specific libraries. “All” applies only to the selected servers and includes eligible libraries added later. Server identity and library IDs are saved, so a server name change does not change the selection.
 
 Select “Save and show” after setup. The carousel contains up to 20 items ordered by Plex's addedAt value, which is when Plex added the media to its library. Movies appear individually. New episodes are grouped under their series and ordered by the most recently added episode. Selecting a card updates the backdrop, series/episode details, and an IMDb or Rotten Tomatoes rating when Plex includes one. A series card opens the series details; it does not start an arbitrary episode.
@@ -33,3 +35,7 @@ Plex Home managed users/PIN profiles are not switched from this settings screen.
 - Insecure HTTP-only server connections are rejected.
 - A missing server or library is not silently replaced with a different selection.
 - No Plex username/password is collected by this app.
+
+## User interface
+
+The visual direction, card dimensions, remote navigation and Fire TV checks are documented in [Plex Home UX](plex-home-ux.md).
