@@ -24,7 +24,7 @@
     <string name="plex_all_libraries">All movie and series libraries on selected servers</string>
     <string name="plex_selected_libraries">%1$d libraries selected</string>
     <string name="plex_pick_libraries">Choose specific libraries</string>
-    <string name="plex_show_shelf">Show recently added Plex row</string>
+    <string name="plex_show_shelf">Show the Plex carousel</string>
     <string name="plex_save_show">Save and show</string>
     <string name="plex_refresh_now">Refresh now</string>
     <string name="plex_close">Close</string>
@@ -48,7 +48,7 @@
     <string name="plex_no_libraries">No accessible movie or series libraries were found.</string>
     <string name="plex_choose_one_library">Choose at least one library.</string>
     <string name="plex_save">Save</string>
-    <string name="plex_saved">Plex row saved</string>
+    <string name="plex_saved">Plex carousel saved</string>
     <string name="plex_refreshing">Refreshing Plex…</string>
     <string name="plex_refresh_done">%1$d titles updated · %2$d servers offline</string>
     <string name="plex_device_settings">Device settings</string>
@@ -58,6 +58,7 @@
     <string name="plex_shelf_loading">Updating Plex titles…</string>
     <string name="plex_shelf_offline">%1$d server(s) unavailable · showing saved titles when available</string>
     <string name="plex_shelf_empty">No recent titles in the selected libraries.</string>
+    <string name="plex_type_movie">Movie</string>
     <string name="plex_app_missing">Install the Plex app on this TV to open titles.</string>
     <string name="plex_opening_app">Opened Plex. Find this title in the app.</string>
 </resources>

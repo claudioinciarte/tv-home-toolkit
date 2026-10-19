@@ -24,7 +24,7 @@
     <string name="plex_all_libraries">Todas las bibliotecas de películas y series de los servidores elegidos</string>
     <string name="plex_selected_libraries">%1$d bibliotecas seleccionadas</string>
     <string name="plex_pick_libraries">Elegir bibliotecas concretas</string>
-    <string name="plex_show_shelf">Mostrar fila de Plex</string>
+    <string name="plex_show_shelf">Mostrar carrusel de Plex</string>
     <string name="plex_save_show">Guardar y mostrar</string>
     <string name="plex_refresh_now">Actualizar ahora</string>
     <string name="plex_close">Cerrar</string>
@@ -48,7 +48,7 @@
     <string name="plex_no_libraries">No se encontraron bibliotecas accesibles de películas o series.</string>
     <string name="plex_choose_one_library">Elige al menos una biblioteca.</string>
     <string name="plex_save">Guardar</string>
-    <string name="plex_saved">Fila de Plex guardada</string>
+    <string name="plex_saved">Carrusel de Plex guardado</string>
     <string name="plex_refreshing">Actualizando Plex…</string>
     <string name="plex_refresh_done">%1$d títulos actualizados · %2$d servidores sin conexión</string>
     <string name="plex_device_settings">Ajustes del dispositivo</string>
@@ -58,6 +58,7 @@
     <string name="plex_shelf_loading">Actualizando títulos de Plex…</string>
     <string name="plex_shelf_offline">%1$d servidores no disponibles · se muestran títulos guardados si los hay</string>
     <string name="plex_shelf_empty">No hay títulos recientes en las bibliotecas elegidas.</string>
+    <string name="plex_type_movie">Película</string>
     <string name="plex_app_missing">Instala la app Plex en este televisor para abrir títulos.</string>
     <string name="plex_opening_app">Se ha abierto Plex. Busca el título en la app.</string>
 </resources>

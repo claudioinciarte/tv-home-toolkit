@@ -6,6 +6,7 @@ import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewOutlineProvider;
+import android.view.animation.OvershootInterpolator;
 import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -100,8 +101,11 @@ final class PlexShelfAdapter extends RecyclerView.Adapter<PlexShelfAdapter.Holde
         PlexManager.MediaItem item = items.get(position);
         holder.title.setText(item.title);
         holder.detail.setText(item.type.equals("show") && !item.episode.isEmpty()
-                ? item.episode : item.serverName);
-        holder.card.setContentDescription(item.title + ", " + holder.detail.getText());
+                ? item.episode : item.year > 0 ? String.valueOf(item.year) : item.serverName);
+        String description = item.type.equals("show") && !item.episodeTitle.isEmpty()
+                ? item.title + ", " + item.episodeTitle : item.title;
+        if (!item.rating.isEmpty()) description += ", " + item.rating;
+        holder.card.setContentDescription(description);
         holder.card.setTag(keyAt(position));
         holder.poster.setImageDrawable(null);
         holder.poster.setBackgroundColor(0xFF29292D);
@@ -113,7 +117,10 @@ final class PlexShelfAdapter extends RecyclerView.Adapter<PlexShelfAdapter.Holde
             return index != RecyclerView.NO_POSITION && listener.onPlexVerticalKey(index, keyCode);
         });
         holder.card.setOnFocusChangeListener((view, focused) -> {
-            view.animate().scaleX(focused ? 1.08f : 1f).scaleY(focused ? 1.08f : 1f).setDuration(180).start();
+            float density = view.getResources().getDisplayMetrics().density;
+            view.animate().scaleX(focused ? 1.12f : 1f).scaleY(focused ? 1.12f : 1f)
+                    .translationY(focused ? -3f * density : 0f).setDuration(220)
+                    .setInterpolator(new OvershootInterpolator(1.2f)).start();
             int index = holder.getBindingAdapterPosition();
             if (focused && index != RecyclerView.NO_POSITION) listener.onPlexFocused(index, item, view);
         });

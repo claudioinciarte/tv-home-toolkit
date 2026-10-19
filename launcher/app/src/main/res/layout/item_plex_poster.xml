@@ -1,50 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="144dp"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:paddingStart="4dp"
-    android:paddingEnd="4dp"
-    android:paddingTop="3dp"
-    android:clipChildren="false"
-    android:clipToPadding="false">
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/plex_poster"
+    android:layout_width="124dp"
+    android:layout_height="108dp"
+    android:layout_marginStart="5dp"
+    android:layout_marginEnd="5dp"
+    android:background="@drawable/tile_bg"
+    android:clickable="true"
+    android:contentDescription="@string/plex_poster_description"
+    android:focusable="true">
 
-    <FrameLayout
-        android:id="@+id/plex_poster"
+    <ImageView
+        android:id="@+id/plex_poster_image"
         android:layout_width="match_parent"
-        android:layout_height="196dp"
-        android:background="@drawable/tile_bg"
-        android:focusable="true"
-        android:clickable="true"
-        android:contentDescription="@string/plex_poster_description">
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@null" />
 
-        <ImageView
-            android:id="@+id/plex_poster_image"
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="54dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/plex_card_scrim"
+        android:importantForAccessibility="no" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingBottom="7dp">
+
+        <TextView
+            android:id="@+id/plex_title"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:contentDescription="@null" />
-    </FrameLayout>
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="@font/outfit"
+            android:fontVariationSettings="'wght' 600"
+            android:maxLines="1"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp" />
 
-    <TextView
-        android:id="@+id/plex_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="7dp"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:textColor="#FFFFFFFF"
-        android:textSize="14sp"
-        android:fontFamily="@font/outfit"
-        android:fontVariationSettings="'wght' 500" />
-
-    <TextView
-        android:id="@+id/plex_detail"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textColor="#99FFFFFF"
-        android:textSize="12sp"
-        android:fontFamily="@font/outfit" />
-</LinearLayout>
+        <TextView
+            android:id="@+id/plex_detail"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="@font/outfit"
+            android:maxLines="1"
+            android:textColor="#CCFFFFFF"
+            android:textSize="10sp" />
+    </LinearLayout>
+</FrameLayout>

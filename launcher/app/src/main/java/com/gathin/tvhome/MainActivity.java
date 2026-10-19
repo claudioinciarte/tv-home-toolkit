@@ -21,6 +21,7 @@ import android.view.ViewGroup;
 import android.view.animation.AnimationUtils;
 import android.view.animation.LayoutAnimationController;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -29,10 +30,13 @@ import androidx.dynamicanimation.animation.DynamicAnimation;
 import androidx.dynamicanimation.animation.SpringAnimation;
 import androidx.dynamicanimation.animation.SpringForce;
 import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.util.Collections;
 import java.util.Calendar;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -49,8 +53,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private PlexManager plex;
     private final AtomicBoolean plexRefreshing = new AtomicBoolean();
     private boolean homeActive;
+    private boolean plexHomeVisible;
     private RecyclerView grid;
     private FrameLayout root;
+    private FrameLayout plexCarousel;
+    private RecyclerView plexList;
+    private PlexShelfAdapter plexPosters;
+    private ImageView plexBackdrop;
+    private TextView plexShelfTitle, plexConnectionStatus, plexHeroTitle, plexHeroSubtitle, plexHeroRating, plexStatus;
+    private View plexRefresh;
+    private String plexBackdropKey;
     private GlassView glass;
     private View ambient;
     private TextView heroName;
@@ -116,6 +128,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 ambientGlow.setGradientRadius((r - l) * 0.62f));
         greeting = findViewById(R.id.greeting);
         btnWifi = findViewById(R.id.btnWifi);
+        plexCarousel = findViewById(R.id.plex_carousel);
+        plexBackdrop = findViewById(R.id.plex_backdrop);
+        plexShelfTitle = findViewById(R.id.plex_shelf_title);
+        plexConnectionStatus = findViewById(R.id.plex_connection_status);
+        plexHeroTitle = findViewById(R.id.plex_hero_title);
+        plexHeroSubtitle = findViewById(R.id.plex_hero_subtitle);
+        plexHeroRating = findViewById(R.id.plex_hero_rating);
+        plexStatus = findViewById(R.id.plex_shelf_status);
+        plexRefresh = findViewById(R.id.plex_refresh);
+        plexList = findViewById(R.id.plex_list);
+        plexList.setLayoutManager(new LinearLayoutManager(this, RecyclerView.HORIZONTAL, false));
+        plexList.setHasFixedSize(true);
+        plexPosters = new PlexShelfAdapter(new PlexManager(this), this);
+        plexList.setAdapter(plexPosters);
+        plexRefresh.setOnClickListener(v -> onPlexRefreshRequested());
+        plexRefresh.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN
+                    || (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN)) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && plexPosters.getItemCount() > 0) {
+                focusPlexItem(0);
+                return true;
+            }
+            return onPlexVerticalKey(0, keyCode);
+        });
 
         grid = findViewById(R.id.grid);
         GridLayoutManager layout = new GridLayoutManager(this, COLUMNS);
@@ -126,11 +162,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.setLayoutAnimation(new LayoutAnimationController(
                 AnimationUtils.loadAnimation(this, R.anim.tile_enter), 0.06f));
         adapter = new AppAdapter(this, this, COLUMNS);
-        layout.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
-            @Override public int getSpanSize(int position) {
-                return adapter != null && adapter.isPlexPosition(position) ? COLUMNS : 1;
-            }
-        });
         grid.setAdapter(adapter);
 
         // tvOS layout: push the dock row to the bottom of the screen; the grid hides below until you press Down.
@@ -141,6 +172,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (grid.getPaddingTop() != want) {
                 grid.setPadding(grid.getPaddingLeft(), want, grid.getPaddingRight(), grid.getPaddingBottom());
             }
+            updatePlexCarouselBounds(want);
         });
 
         // Keep the glass glued to its tile while the grid scrolls.
@@ -205,8 +237,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         final int returnPlexSlot = lastPlexFocusedSlot;
         adapter.reload();
         plex = new PlexManager(this);
-        adapter.setPlexVisible(plex.enabled() && plex.configured());
-        adapter.setPlexContent(plex.loadCache(), false);
+        plexHomeVisible = plex.enabled() && plex.configured();
+        plexCarousel.setVisibility(plexHomeVisible ? View.VISIBLE : View.GONE);
+        plexBackdropKey = null;
+        showPlexContent(plex.loadCache(), false);
         grid.scheduleLayoutAnimation();
         updateGreeting();
         updateWifiLabel();
@@ -215,8 +249,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Return to the app we left from, or the same slot if that app is gone. Always refocus: after
         // reload() the view that holds focus may no longer show the app it had.
         grid.post(() -> {
-            if (returnPlexKey != null && adapter.plexPosition() >= 0) {
-                int index = adapter.plexIndexOf(returnPlexKey);
+            if (returnPlexKey != null && plexHomeVisible) {
+                int index = plexPosters.positionOf(returnPlexKey);
                 focusPlexItem(index >= 0 ? index : returnPlexSlot);
                 refreshPlexIfStale();
                 return;
@@ -297,7 +331,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             int decoratedTop = item.getTop() - (int) (6 * density);
             int dy = decoratedTop - grid.getPaddingTop();
             if (Math.abs(dy) > 1) grid.smoothScrollBy(0, dy);
-            showHero(position, r.top - dy);
+            if (plexHomeVisible) hideHero();
+            else showHero(position, r.top - dy);
         } else {
             hideHero();
             // Scroll just enough so the whole glass (not only the tile) is visible.
@@ -369,20 +404,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         int dock = adapter.dockCount();
         int targetIndex;
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (appIndex < dock) return false;             // dock row: let focus move to the top bar
-            if (adapter.plexPosition() >= 0 && appIndex < dock + COLUMNS) {
-                focusPlexItem(Math.min(appIndex - dock, Math.max(0, adapter.plexItemCount() - 1)));
+            if (appIndex < dock) {
+                if (!plexHomeVisible) return false;
+                focusPlexItem(appIndex);
                 return true;
             }
             targetIndex = appIndex - COLUMNS;
         } else {
-            if (appIndex < dock && adapter.plexPosition() >= 0) {
-                focusPlexItem(Math.min(appIndex, Math.max(0, adapter.plexItemCount() - 1)));
-                return true;
-            }
-            int first = adapter.plexPosition() >= 0 ? dock : 0;
-            int below = appCount - first;
-            int lastRowStart = below <= 0 ? appCount : first + ((below - 1) / COLUMNS) * COLUMNS;
+            int lastRowStart = appCount <= 0 ? 0 : ((appCount - 1) / COLUMNS) * COLUMNS;
             if (appIndex >= lastRowStart) return true;
             targetIndex = Math.min(appIndex + COLUMNS, appCount - 1);
         }
@@ -398,18 +427,17 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         lastFocusedKey = null;
         hideHero();
         hideGlass();
+        showPlexDetails(item, true);
     }
 
     @Override
     public boolean onPlexVerticalKey(int index, int keyCode) {
         int dock = adapter.dockCount();
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (dock > 0) focusTile(adapter.positionForAppIndex(Math.min(index, dock - 1)));
-            else findViewById(R.id.btnSettings).requestFocus();
+            findViewById(R.id.btnSettings).requestFocus();
             return true;
         }
-        int appIndex = dock + (index % COLUMNS);
-        if (appIndex < adapter.getAppCount()) focusTile(adapter.positionForAppIndex(appIndex));
+        if (dock > 0) focusTile(adapter.positionForAppIndex(Math.min(index, dock - 1)));
         return true;
     }
 
@@ -419,23 +447,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void focusPlexItem(int index) {
-        int row = adapter.plexPosition();
-        if (row < 0) return;
-        RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(row);
-        if (holder instanceof AppAdapter.PlexHolder) {
-            AppAdapter.PlexHolder shelf = (AppAdapter.PlexHolder) holder;
-            if (adapter.plexItemCount() == 0) shelf.refresh.requestFocus();
-            else shelf.posters.focus(index);
-            return;
-        }
-        grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
-                if (state != RecyclerView.SCROLL_STATE_IDLE) return;
-                rv.removeOnScrollListener(this);
-                focusPlexItem(index);
-            }
-        });
-        grid.smoothScrollToPosition(row);
+        if (!plexHomeVisible) return;
+        if (plexPosters.getItemCount() == 0) plexRefresh.requestFocus();
+        else plexPosters.focus(index);
     }
 
     private void focusTile(int position) {
@@ -477,22 +491,108 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void refreshPlexIfStale() {
-        if (homeActive && adapter != null && plex != null && adapter.plexPosition() >= 0
-                && plex.cacheAgeMs() >= 5 * 60 * 1000L) refreshPlex();
+        if (homeActive && plexHomeVisible && plex != null
+                && (plex.cacheNeedsMetadataRefresh() || plex.cacheAgeMs() >= 5 * 60 * 1000L)) refreshPlex();
     }
 
     private void refreshPlex() {
-        if (!homeActive || plex == null || !plex.configured() || !plexRefreshing.compareAndSet(false, true)) return;
-        adapter.setPlexContent(plex.loadCache(), true);
+        if (!homeActive || !plexHomeVisible || plex == null || !plex.configured()
+                || !plexRefreshing.compareAndSet(false, true)) return;
+        plex.markMetadataRefreshAttempt();
+        showPlexContent(plex.loadCache(), true);
         PlexManager current = plex;
         PlexManager.execute(current::refreshRecent, (result, error) -> runOnUiThread(() -> {
             plexRefreshing.set(false);
             if (!homeActive || isFinishing()) return;
             if (error != null) {
                 Set<String> offline = new HashSet<>(current.selectedServers());
-                adapter.setPlexContent(new PlexManager.FetchResult(current.loadCache().items, offline), false);
-            } else adapter.setPlexContent(result, false);
+                showPlexContent(new PlexManager.FetchResult(current.loadCache().items, offline), false);
+            } else showPlexContent(result, false);
         }));
+    }
+
+    private void updatePlexCarouselBounds(int paddingTop) {
+        if (plexCarousel == null) return;
+        int height = Math.max(0, paddingTop - (int) (8 * density));
+        ViewGroup.LayoutParams params = plexCarousel.getLayoutParams();
+        if (params.height != height) {
+            params.height = height;
+            plexCarousel.setLayoutParams(params);
+        }
+    }
+
+    private void showPlexContent(PlexManager.FetchResult result, boolean loading) {
+        List<PlexManager.MediaItem> items = result == null ? Collections.emptyList() : result.items;
+        plexPosters.setItems(items);
+        boolean hasItems = !items.isEmpty();
+        String state = loading ? getString(R.string.plex_shelf_loading)
+                : result != null && !result.offlineServers.isEmpty()
+                ? getString(R.string.plex_shelf_offline, result.offlineServers.size())
+                : hasItems ? "" : getString(R.string.plex_shelf_empty);
+        plexShelfTitle.setText(R.string.plex_shelf_title);
+        plexConnectionStatus.setText(state);
+        plexConnectionStatus.setVisibility(hasItems && !state.isEmpty() ? View.VISIBLE : View.GONE);
+        plexStatus.setText(state.isEmpty() ? getString(R.string.plex_shelf_empty) : state);
+        plexStatus.setVisibility(hasItems || state.isEmpty() ? View.GONE : View.VISIBLE);
+        plexList.setVisibility(hasItems ? View.VISIBLE : View.GONE);
+        if (hasItems) {
+            int selected = plexPosters.positionOf(lastPlexFocusedKey);
+            showPlexDetails(items.get(selected >= 0 ? selected : 0), false);
+        } else {
+            plexHeroTitle.setText("");
+            plexHeroSubtitle.setText("");
+            plexHeroRating.setVisibility(View.GONE);
+            plexBackdropKey = null;
+            plexBackdrop.animate().alpha(0f).setDuration(120).start();
+        }
+    }
+
+    private void showPlexDetails(PlexManager.MediaItem item, boolean animate) {
+        if (item == null) return;
+        String subtitle;
+        if (item.type.equals("show")) {
+            subtitle = item.episode.isEmpty() ? item.episodeTitle : item.episode;
+            if (!item.episode.isEmpty() && !item.episodeTitle.isEmpty()) subtitle += " · " + item.episodeTitle;
+        } else {
+            subtitle = item.year > 0 ? String.valueOf(item.year) : getString(R.string.plex_type_movie);
+        }
+        final String detailText = subtitle;
+        Runnable update = () -> {
+            plexHeroTitle.setText(item.title);
+            plexHeroSubtitle.setText(detailText);
+            plexHeroRating.setText(item.rating);
+            plexHeroRating.setVisibility(item.rating.isEmpty() ? View.GONE : View.VISIBLE);
+            plexHeroTitle.setTranslationY(0f);
+            plexHeroSubtitle.setTranslationY(0f);
+            plexHeroTitle.animate().alpha(1f).setDuration(180).start();
+            plexHeroSubtitle.animate().alpha(1f).setDuration(180).start();
+            plexHeroRating.animate().alpha(item.rating.isEmpty() ? 0f : 1f).setDuration(180).start();
+        };
+        if (animate) {
+            plexHeroTitle.animate().alpha(0f).translationY(6 * density).setDuration(120).withEndAction(update).start();
+            plexHeroSubtitle.animate().alpha(0f).translationY(6 * density).setDuration(120).start();
+            plexHeroRating.animate().alpha(0f).setDuration(100).start();
+        } else update.run();
+        showPlexBackdrop(item);
+    }
+
+    private void showPlexBackdrop(PlexManager.MediaItem item) {
+        String key = item.serverId + "|" + item.art + "|" + item.thumb;
+        if (key.equals(plexBackdropKey)) return;
+        plexBackdropKey = key;
+        plexBackdrop.animate().alpha(0f).setDuration(120).withEndAction(() -> {
+            if (!key.equals(plexBackdropKey)) return;
+            plexBackdrop.setImageDrawable(null);
+            PlexManager current = plex;
+            PlexManager.execute(() -> current == null ? null : current.backdrop(item), (bitmap, error) ->
+                    plexBackdrop.post(() -> {
+                        if (!key.equals(plexBackdropKey)) return;
+                        if (error == null && bitmap != null) {
+                            plexBackdrop.setImageBitmap(bitmap);
+                            plexBackdrop.animate().alpha(0.32f).setDuration(320).start();
+                        }
+                    }));
+        }).start();
     }
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */

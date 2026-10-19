@@ -149,7 +149,8 @@
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
-            android:layout_marginTop="10dp">
+            android:layout_marginTop="10dp"
+            android:clipChildren="false">
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/grid"
@@ -162,6 +163,14 @@
                 android:overScrollMode="never"
                 android:scrollbars="none"
                 android:descendantFocusability="afterDescendants" />
+
+            <include
+                android:id="@+id/plex_carousel"
+                layout="@layout/plex_carousel"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_gravity="top"
+                android:visibility="gone" />
         </FrameLayout>
     </LinearLayout>
 

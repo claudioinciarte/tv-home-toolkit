@@ -119,11 +119,14 @@ final class PlexManager {
     }
 
     static final class MediaItem {
-        final String serverId, serverName, libraryId, ratingKey, key, title, thumb, type, episode, accessToken;
+        final String serverId, serverName, libraryId, ratingKey, key, title, thumb, art, type,
+                episode, episodeTitle, rating, accessToken;
+        final int year;
         final long addedAt;
         final String baseUrl;
         MediaItem(String serverId, String serverName, String libraryId, String ratingKey, String key,
-                  String title, String thumb, String type, String episode, long addedAt,
+                  String title, String thumb, String art, String type, String episode,
+                  String episodeTitle, String rating, int year, long addedAt,
                   String baseUrl, String accessToken) {
             this.serverId = serverId;
             this.serverName = serverName;
@@ -132,8 +135,12 @@ final class PlexManager {
             this.key = key;
             this.title = title;
             this.thumb = thumb;
+            this.art = art;
             this.type = type;
             this.episode = episode;
+            this.episodeTitle = episodeTitle;
+            this.rating = rating;
+            this.year = year;
             this.addedAt = addedAt;
             this.baseUrl = baseUrl;
             this.accessToken = accessToken;
@@ -147,16 +154,21 @@ final class PlexManager {
             value.put("key", key);
             value.put("title", title);
             value.put("thumb", thumb);
+            value.put("art", art);
             value.put("type", type);
             value.put("episode", episode);
+            value.put("episodeTitle", episodeTitle);
+            value.put("rating", rating);
+            value.put("year", year);
             value.put("addedAt", addedAt);
             return value;
         }
         static MediaItem fromJson(JSONObject value) {
             return new MediaItem(value.optString("serverId"), value.optString("serverName"),
                     value.optString("libraryId"), value.optString("ratingKey"), value.optString("key"), value.optString("title"),
-                    value.optString("thumb"), value.optString("type"), value.optString("episode"),
-                    value.optLong("addedAt"), null, null);
+                    value.optString("thumb"), value.optString("art"), value.optString("type"),
+                    value.optString("episode"), value.optString("episodeTitle"), value.optString("rating"),
+                    value.optInt("year"), value.optLong("addedAt"), null, null);
         }
     }
 
@@ -358,6 +370,13 @@ final class PlexManager {
     }
 
     long cacheAgeMs() { return System.currentTimeMillis() - prefs.getLong("cache_time", 0); }
+    boolean cacheNeedsMetadataRefresh() {
+        return prefs.getInt("cache_metadata_version", 0) < 1
+                && System.currentTimeMillis() - prefs.getLong("cache_metadata_attempt", 0) >= 5 * 60 * 1000L;
+    }
+    void markMetadataRefreshAttempt() {
+        prefs.edit().putLong("cache_metadata_attempt", System.currentTimeMillis()).apply();
+    }
 
     synchronized FetchResult refreshRecent() throws Exception {
         if (!configured()) return new FetchResult(new ArrayList<>(), new HashSet<>());
@@ -417,6 +436,8 @@ final class PlexManager {
         }
         fresh = PlexCatalog.mergeAndLimit(fresh, MAX_ITEMS);
         saveCache(fresh, generation);
+        if (offline.size() < selectedServerIds.size())
+            prefs.edit().putInt("cache_metadata_version", 1).apply();
         return new FetchResult(fresh, offline);
     }
 
@@ -459,7 +480,8 @@ final class PlexManager {
             if (rating.isEmpty()) continue;
             String key = value.optString("key", "/library/metadata/" + rating);
             result.add(new MediaItem(server.id, server.name, sectionId, rating, key,
-                    value.optString("title", "Película"), value.optString("thumb"), "movie", "",
+                    value.optString("title", "Película"), value.optString("thumb"), value.optString("art"),
+                    "movie", "", "", plexRating(value, ""), value.optInt("year"),
                     value.optLong("addedAt"), base, server.accessToken));
         }
         return result;
@@ -481,16 +503,34 @@ final class PlexManager {
                 if (showId.isEmpty() || shows.containsKey(showId)) continue;
                 int season = episode.optInt("parentIndex", 0), number = episode.optInt("index", 0);
                 String episodeLabel = season > 0 && number > 0
-                        ? String.format(java.util.Locale.getDefault(), "T%02d · E%02d", season, number)
-                        : episode.optString("title", "");
+                        ? String.format(java.util.Locale.getDefault(), "%02dx%02d", season, number) : "";
+                String rating = plexRating(episode, "grandparent");
+                if (rating.isEmpty()) rating = plexRating(episode, "");
                 shows.put(showId, new MediaItem(server.id, server.name, sectionId, showId,
                         "/library/metadata/" + showId, episode.optString("grandparentTitle", "Serie"),
-                        episode.optString("grandparentThumb"), "show", episodeLabel,
+                        episode.optString("grandparentThumb"), episode.optString("grandparentArt"), "show",
+                        episodeLabel, episode.optString("title"), rating, episode.optInt("grandparentYear"),
                         episode.optLong("addedAt"), base, server.accessToken));
             }
             if (episodes.isEmpty()) break;
         }
         return new ArrayList<>(shows.values());
+    }
+
+    private static String plexRating(JSONObject value, String prefix) {
+        for (String kind : new String[]{"", "Audience"}) {
+            String field = prefix + kind + "Rating";
+            String rating = PlexRating.format(value.optString(field + "Image"), value.optString(field));
+            if (!rating.isEmpty()) return rating;
+        }
+        JSONArray values = value.optJSONArray("Rating");
+        if (values != null) for (int i = 0; i < values.length(); i++) {
+            JSONObject rating = values.optJSONObject(i);
+            if (rating == null) continue;
+            String result = PlexRating.format(rating.optString("image"), rating.optString("value"));
+            if (!result.isEmpty()) return result;
+        }
+        return "";
     }
 
     private void saveCache(List<MediaItem> items, int generation) {
@@ -507,10 +547,17 @@ final class PlexManager {
     }
 
     android.graphics.Bitmap poster(MediaItem item) throws Exception {
+        return image(item, item == null ? null : item.thumb, 240, 360);
+    }
+
+    android.graphics.Bitmap backdrop(MediaItem item) throws Exception {
+        return image(item, item == null ? null : (item.art.isEmpty() ? item.thumb : item.art), 1200, 560);
+    }
+
+    private android.graphics.Bitmap image(MediaItem item, String source, int width, int height) throws Exception {
         int generation = SESSION_GENERATION.get();
-        if (item == null || item.thumb == null
-                || !item.thumb.startsWith("/") || item.thumb.startsWith("//")) return null;
-        String cacheKey = item.serverId + "|" + item.thumb;
+        if (item == null || source == null || !source.startsWith("/") || source.startsWith("//")) return null;
+        String cacheKey = item.serverId + "|" + source + "|" + width + "x" + height;
         android.graphics.Bitmap cached = POSTERS.get(cacheKey);
         if (cached != null) return cached;
         Server server = null;
@@ -522,8 +569,8 @@ final class PlexManager {
         if (token == null || token.isEmpty()) return null;
         List<String> urls = PlexPosterSources.ordered(item.baseUrl,
                 server == null ? Collections.emptyList() : server.urls);
-        String path = "/photo/:/transcode?url=" + URLEncoder.encode(item.thumb, "UTF-8")
-                + "&width=240&height=360&minSize=1&upscale=0";
+        String path = "/photo/:/transcode?url=" + URLEncoder.encode(source, "UTF-8")
+                + "&width=" + width + "&height=" + height + "&minSize=1&upscale=0";
         Exception failure = null;
         for (String base : urls) {
             try {
@@ -532,7 +579,7 @@ final class PlexManager {
                 options.inJustDecodeBounds = true;
                 android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
                 int sample = 1;
-                while (options.outWidth / sample > 480 || options.outHeight / sample > 720) sample *= 2;
+                while (options.outWidth / sample > width || options.outHeight / sample > height) sample *= 2;
                 options.inJustDecodeBounds = false;
                 options.inSampleSize = sample;
                 android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);

@@ -26,7 +26,7 @@ public class PlexCatalogTest {
         List<PlexManager.MediaItem> result = PlexCatalog.filterSelection(Arrays.asList(
                 item("local", "42", "movie", "Selected library", 1),
                 new PlexManager.MediaItem("local", "local", "shows", "9", "/library/metadata/9",
-                        "Unselected library", "", "show", "", 2, null, null),
+                        "Unselected library", "", "", "show", "", "", "", 0, 2, null, null),
                 item("remote", "42", "movie", "Unselected server", 3)
         ), new HashSet<>(Arrays.asList("local")), new HashSet<>(Arrays.asList("local|movies")), false);
 
@@ -36,6 +36,6 @@ public class PlexCatalogTest {
 
     private PlexManager.MediaItem item(String server, String id, String type, String title, long addedAt) {
         return new PlexManager.MediaItem(server, server, "movies", id, "/library/metadata/" + id,
-                title, "", type, "", addedAt, null, null);
+                title, "", "", type, "", "", "", 0, addedAt, null, null);
     }
 }
