@@ -118,7 +118,7 @@ final class PlexShelfAdapter extends RecyclerView.Adapter<PlexShelfAdapter.Holde
             if (focused && index != RecyclerView.NO_POSITION) listener.onPlexFocused(index, item, view);
         });
         String key = manager.username() + "|" + item.serverId + "|" + item.thumb;
-        if (item.baseUrl != null && item.accessToken != null && !item.accessToken.isEmpty() && !item.thumb.isEmpty()) {
+        if (item.thumb != null && !item.thumb.isEmpty()) {
             holder.poster.setTag(key);
             PlexManager.execute(() -> manager.poster(item), (bitmap, error) -> holder.poster.post(() -> {
                 if (error == null && bitmap != null && key.equals(holder.poster.getTag())) {

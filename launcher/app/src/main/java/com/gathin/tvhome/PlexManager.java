@@ -178,6 +178,7 @@ final class PlexManager {
     }
 
     private final SharedPreferences prefs;
+    private volatile List<Server> posterServerCache;
 
     PlexManager(Context context) {
         Context app = context.getApplicationContext();
@@ -315,6 +316,15 @@ final class PlexManager {
         } catch (Exception ignored) {
         }
         return result;
+    }
+
+    private List<Server> posterServers() {
+        List<Server> cached = posterServerCache;
+        if (cached != null) return cached;
+        synchronized (this) {
+            if (posterServerCache == null) posterServerCache = cachedServers();
+            return posterServerCache;
+        }
     }
 
     List<Library> libraries(List<Server> servers) throws Exception {
@@ -498,27 +508,44 @@ final class PlexManager {
 
     android.graphics.Bitmap poster(MediaItem item) throws Exception {
         int generation = SESSION_GENERATION.get();
-        if (item == null || item.baseUrl == null || item.accessToken == null || item.accessToken.isEmpty()
-                || item.thumb == null
+        if (item == null || item.thumb == null
                 || !item.thumb.startsWith("/") || item.thumb.startsWith("//")) return null;
         String cacheKey = item.serverId + "|" + item.thumb;
         android.graphics.Bitmap cached = POSTERS.get(cacheKey);
         if (cached != null) return cached;
+        Server server = null;
+        for (Server candidate : posterServers()) {
+            if (candidate.id.equals(item.serverId)) { server = candidate; break; }
+        }
+        String token = item.accessToken;
+        if ((token == null || token.isEmpty()) && server != null) token = server.accessToken;
+        if (token == null || token.isEmpty()) return null;
+        List<String> urls = PlexPosterSources.ordered(item.baseUrl,
+                server == null ? Collections.emptyList() : server.urls);
         String path = "/photo/:/transcode?url=" + URLEncoder.encode(item.thumb, "UTF-8")
                 + "&width=240&height=360&minSize=1&upscale=0";
-        byte[] bytes = requestBytes(new URL(item.baseUrl + path), item.accessToken, "image/jpeg");
-        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
-        options.inJustDecodeBounds = true;
-        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-        int sample = 1;
-        while (options.outWidth / sample > 480 || options.outHeight / sample > 720) sample *= 2;
-        options.inJustDecodeBounds = false;
-        options.inSampleSize = sample;
-        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-        if (bitmap != null) synchronized (PlexManager.class) {
-            if (generation == SESSION_GENERATION.get()) POSTERS.put(cacheKey, bitmap);
+        Exception failure = null;
+        for (String base : urls) {
+            try {
+                byte[] bytes = requestBytes(new URL(base + path), token, "image/jpeg");
+                android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+                options.inJustDecodeBounds = true;
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+                int sample = 1;
+                while (options.outWidth / sample > 480 || options.outHeight / sample > 720) sample *= 2;
+                options.inJustDecodeBounds = false;
+                options.inSampleSize = sample;
+                android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+                if (bitmap != null) synchronized (PlexManager.class) {
+                    if (generation == SESSION_GENERATION.get()) POSTERS.put(cacheKey, bitmap);
+                    return bitmap;
+                }
+            } catch (Exception e) {
+                failure = e;
+            }
         }
-        return bitmap;
+        if (failure != null) throw failure;
+        return null;
     }
 
     static void open(Context context, MediaItem item) {
@@ -550,6 +577,7 @@ final class PlexManager {
         synchronized (PlexManager.class) {
             SESSION_GENERATION.incrementAndGet();
             prefs.edit().clear().apply();
+            posterServerCache = null;
             POSTERS.evictAll();
             try {
                 KeyStore store = KeyStore.getInstance("AndroidKeyStore");
@@ -706,8 +734,13 @@ final class PlexManager {
     }
 
     private JSONObject requestServer(Server server, String path) throws Exception {
-        String base = server.urls.isEmpty() ? null : server.urls.get(0);
-        return requestServer(server, base, path);
+        Exception failure = null;
+        for (String base : server.urls) {
+            try { return requestServer(server, base, path); }
+            catch (Exception e) { failure = e; }
+        }
+        if (failure != null) throw failure;
+        return requestServer(server, null, path);
     }
 
     private JSONObject requestServer(Server server, String base, String path) throws Exception {
@@ -826,6 +859,7 @@ final class PlexManager {
             if (selected.contains(server.id) && server.accessToken != null && !server.accessToken.isEmpty())
                 tokens.put(server.id, server.accessToken);
         prefs.edit().putString("server_tokens", encryptText(tokens.toString())).apply();
+        posterServerCache = null;
     }
 
     private static List<JSONObject> objects(JSONObject parent, String key) {
