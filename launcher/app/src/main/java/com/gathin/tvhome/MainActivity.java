@@ -32,6 +32,9 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.Calendar;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
@@ -43,6 +46,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private static final long MINUTE_MS = 60_000L;
 
     private AppAdapter adapter;
+    private PlexManager plex;
+    private final AtomicBoolean plexRefreshing = new AtomicBoolean();
+    private boolean homeActive;
     private RecyclerView grid;
     private FrameLayout root;
     private GlassView glass;
@@ -61,6 +67,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private static int lastFocused = 0;
     /** App of the last focused tile, so focus follows it when the app list changes. */
     private static String lastFocusedKey;
+    private static String lastPlexFocusedKey;
+    private static int lastPlexFocusedSlot;
     private float density;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -68,7 +76,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private final ConnectivityManager.NetworkCallback networkCallback = new ConnectivityManager.NetworkCallback() {
         @Override
         public void onAvailable(@NonNull Network network) {
-            handler.post(MainActivity.this::updateWifiLabel);
+            handler.post(() -> {
+                updateWifiLabel();
+                refreshPlexIfStale();
+            });
         }
 
         @Override
@@ -81,6 +92,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         public void run() {
             updateGreeting();
             updateWifiLabel();
+            refreshPlexIfStale();
             handler.postDelayed(this, MINUTE_MS);
         }
     };
@@ -106,13 +118,19 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnWifi = findViewById(R.id.btnWifi);
 
         grid = findViewById(R.id.grid);
-        grid.setLayoutManager(new GridLayoutManager(this, COLUMNS));
+        GridLayoutManager layout = new GridLayoutManager(this, COLUMNS);
+        grid.setLayoutManager(layout);
         grid.setHasFixedSize(true);
         grid.setItemAnimator(null);
-        grid.addItemDecoration(new DockDecoration(COLUMNS, density));
+        grid.addItemDecoration(new DockDecoration(density));
         grid.setLayoutAnimation(new LayoutAnimationController(
                 AnimationUtils.loadAnimation(this, R.anim.tile_enter), 0.06f));
         adapter = new AppAdapter(this, this, COLUMNS);
+        layout.setSpanSizeLookup(new GridLayoutManager.SpanSizeLookup() {
+            @Override public int getSpanSize(int position) {
+                return adapter != null && adapter.isPlexPosition(position) ? COLUMNS : 1;
+            }
+        });
         grid.setAdapter(adapter);
 
         // tvOS layout: push the dock row to the bottom of the screen; the grid hides below until you press Down.
@@ -145,10 +163,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         View btnSettings = findViewById(R.id.btnSettings);
         btnWifi.setOnClickListener(v -> open(new Intent(Settings.ACTION_WIFI_SETTINGS)));
-        btnSettings.setOnClickListener(v -> {
-            if (HomeRedirect.isFireTv(this)) HomeSettings.show(this);
-            else open(new Intent(Settings.ACTION_SETTINGS));
-        });
+        btnSettings.setOnClickListener(v -> HomeSettings.show(this));
 
         // Keep focus on the top bar at its ends and at the top: Android's focus finder would otherwise
         // jump to a tile far below when there is nothing in that direction.
@@ -163,7 +178,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         // Hide the glass when focus leaves the tiles.
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
-            boolean onTile = newF != null && newF.getId() == R.id.card;
+            boolean onTile = newF != null
+                    && (newF.getId() == R.id.card || newF.getId() == R.id.plex_poster);
             if (!onTile) hideGlass();
         });
 
@@ -174,6 +190,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onResume() {
         super.onResume();
+        homeActive = true;
         HomeRedirect.markHomeVisible(this);
         root.postDelayed(HomeRedirectService::onHomeVisible, 120);
         glassShown = false;
@@ -184,7 +201,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Read these before reload(): rebinding can move focus to the first tile and overwrite them.
         final String returnKey = lastFocusedKey;
         final int returnSlot = lastFocused;
+        final String returnPlexKey = lastPlexFocusedKey;
+        final int returnPlexSlot = lastPlexFocusedSlot;
         adapter.reload();
+        plex = new PlexManager(this);
+        adapter.setPlexVisible(plex.enabled() && plex.configured());
+        adapter.setPlexContent(plex.loadCache(), false);
         grid.scheduleLayoutAnimation();
         updateGreeting();
         updateWifiLabel();
@@ -193,8 +215,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Return to the app we left from, or the same slot if that app is gone. Always refocus: after
         // reload() the view that holds focus may no longer show the app it had.
         grid.post(() -> {
+            if (returnPlexKey != null && adapter.plexPosition() >= 0) {
+                int index = adapter.plexIndexOf(returnPlexKey);
+                focusPlexItem(index >= 0 ? index : returnPlexSlot);
+                refreshPlexIfStale();
+                return;
+            }
             int pos = adapter.positionOf(returnKey);
             focusTile(pos >= 0 ? pos : returnSlot);
+            refreshPlexIfStale();
         });
     }
 
@@ -204,11 +233,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         setIntent(intent);
         HomeRedirect.markHomeVisible(this);
         root.postDelayed(HomeRedirectService::onHomeVisible, 120);
+        refreshPlexIfStale();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        homeActive = false;
         handler.removeCallbacks(minuteTick);
     }
 
@@ -230,6 +261,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     public void onTileFocused(int position, View card) {
         lastFocused = position;
         lastFocusedKey = adapter.keyAt(position);
+        lastPlexFocusedKey = null;
         // Tile rect in root coordinates, using layout positions (ignores the scale animation).
         Rect r = new Rect(0, 0, card.getWidth(), card.getHeight());
         root.offsetDescendantRectToMyCoords(card, r);
@@ -260,7 +292,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             springY.animateToFinalPosition(y);
         }
         View item = (View) card.getParent();
-        if (position < COLUMNS) {
+        if (adapter.isDockPosition(position)) {
             // Dock: park it at the bottom of the screen and show the top shelf for this app.
             int decoratedTop = item.getTop() - (int) (6 * density);
             int dy = decoratedTop - grid.getPaddingTop();
@@ -331,18 +363,79 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     @Override
     public boolean onTileVerticalKey(int position, int keyCode) {
-        int count = adapter.getItemCount();
-        int target;
+        int appIndex = adapter.appIndexAt(position);
+        if (appIndex < 0) return true;
+        int appCount = adapter.getAppCount();
+        int dock = adapter.dockCount();
+        int targetIndex;
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (position < COLUMNS) return false;          // dock row: let focus move to the top bar
-            target = position - COLUMNS;
+            if (appIndex < dock) return false;             // dock row: let focus move to the top bar
+            if (adapter.plexPosition() >= 0 && appIndex < dock + COLUMNS) {
+                focusPlexItem(Math.min(appIndex - dock, Math.max(0, adapter.plexItemCount() - 1)));
+                return true;
+            }
+            targetIndex = appIndex - COLUMNS;
         } else {
-            int lastRowStart = ((count - 1) / COLUMNS) * COLUMNS;
-            if (position >= lastRowStart) return true;     // already on the last row: stay put
-            target = Math.min(position + COLUMNS, count - 1);
+            if (appIndex < dock && adapter.plexPosition() >= 0) {
+                focusPlexItem(Math.min(appIndex, Math.max(0, adapter.plexItemCount() - 1)));
+                return true;
+            }
+            int first = adapter.plexPosition() >= 0 ? dock : 0;
+            int below = appCount - first;
+            int lastRowStart = below <= 0 ? appCount : first + ((below - 1) / COLUMNS) * COLUMNS;
+            if (appIndex >= lastRowStart) return true;
+            targetIndex = Math.min(appIndex + COLUMNS, appCount - 1);
         }
-        focusTile(target);
+        int target = adapter.positionForAppIndex(targetIndex);
+        if (target >= 0) focusTile(target);
         return true;
+    }
+
+    @Override
+    public void onPlexFocused(int index, PlexManager.MediaItem item, View card) {
+        lastPlexFocusedKey = item.serverId + "|" + item.ratingKey + "|" + item.type;
+        lastPlexFocusedSlot = index;
+        lastFocusedKey = null;
+        hideHero();
+        hideGlass();
+    }
+
+    @Override
+    public boolean onPlexVerticalKey(int index, int keyCode) {
+        int dock = adapter.dockCount();
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            if (dock > 0) focusTile(adapter.positionForAppIndex(Math.min(index, dock - 1)));
+            else findViewById(R.id.btnSettings).requestFocus();
+            return true;
+        }
+        int appIndex = dock + (index % COLUMNS);
+        if (appIndex < adapter.getAppCount()) focusTile(adapter.positionForAppIndex(appIndex));
+        return true;
+    }
+
+    @Override
+    public void onPlexRefreshRequested() {
+        refreshPlex();
+    }
+
+    private void focusPlexItem(int index) {
+        int row = adapter.plexPosition();
+        if (row < 0) return;
+        RecyclerView.ViewHolder holder = grid.findViewHolderForAdapterPosition(row);
+        if (holder instanceof AppAdapter.PlexHolder) {
+            AppAdapter.PlexHolder shelf = (AppAdapter.PlexHolder) holder;
+            if (adapter.plexItemCount() == 0) shelf.refresh.requestFocus();
+            else shelf.posters.focus(index);
+            return;
+        }
+        grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
+                if (state != RecyclerView.SCROLL_STATE_IDLE) return;
+                rv.removeOnScrollListener(this);
+                focusPlexItem(index);
+            }
+        });
+        grid.smoothScrollToPosition(row);
     }
 
     private void focusTile(int position) {
@@ -381,6 +474,25 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         else if (hour < 22) res = R.string.good_evening;
         else res = R.string.good_night;
         greeting.setText(res);
+    }
+
+    private void refreshPlexIfStale() {
+        if (homeActive && adapter != null && plex != null && adapter.plexPosition() >= 0
+                && plex.cacheAgeMs() >= 5 * 60 * 1000L) refreshPlex();
+    }
+
+    private void refreshPlex() {
+        if (!homeActive || plex == null || !plex.configured() || !plexRefreshing.compareAndSet(false, true)) return;
+        adapter.setPlexContent(plex.loadCache(), true);
+        PlexManager current = plex;
+        PlexManager.execute(current::refreshRecent, (result, error) -> runOnUiThread(() -> {
+            plexRefreshing.set(false);
+            if (!homeActive || isFinishing()) return;
+            if (error != null) {
+                Set<String> offline = new HashSet<>(current.selectedServers());
+                adapter.setPlexContent(new PlexManager.FetchResult(current.loadCache().items, offline), false);
+            } else adapter.setPlexContent(result, false);
+        }));
     }
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */

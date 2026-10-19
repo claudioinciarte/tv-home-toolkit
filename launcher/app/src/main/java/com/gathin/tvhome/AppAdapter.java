@@ -38,13 +38,17 @@ import java.util.Set;
  * App tiles. The first {@link MainActivity#COLUMNS} positions are the pinned dock (favourites, fixed order),
  * the rest is alphabetical.
  */
-public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     interface TileListener {
         void onTileFocused(int position, View card);
 
         /** Called for D-pad Up/Down on a tile. Return true when handled. */
         boolean onTileVerticalKey(int position, int keyCode);
+
+        void onPlexFocused(int index, PlexManager.MediaItem item, View card);
+        boolean onPlexVerticalKey(int index, int keyCode);
+        void onPlexRefreshRequested();
     }
 
     static final class Entry {
@@ -65,6 +69,9 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     }
 
     static final float FOCUS_SCALE = 1.10f;
+    private static final int TYPE_APP = 0;
+    private static final int TYPE_PLEX = 1;
+    private static final long PLEX_ROW_ID = Long.MAX_VALUE;
 
     private final Context ctx;
     private final TileListener listener;
@@ -74,6 +81,10 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     /** Never shown as tiles (res/values/config.xml, hidden_apps). */
     private final Set<String> hidden;
     private final List<Entry> items = new ArrayList<>();
+    private final List<PlexManager.MediaItem> plexItems = new ArrayList<>();
+    private final Set<String> offlineServers = new HashSet<>();
+    private boolean plexVisible;
+    private boolean plexLoading;
 
     AppAdapter(Context ctx, TileListener listener, int dockSize) {
         this.ctx = ctx;
@@ -115,18 +126,73 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         notifyDataSetChanged();
     }
 
+    int dockCount() { return Math.min(dockSize, items.size()); }
+    int getAppCount() { return items.size(); }
+    boolean isDockPosition(int position) { return position >= 0 && position < dockCount(); }
+    int plexPosition() { return plexVisible ? dockCount() : -1; }
+    boolean isPlexPosition(int position) { return plexVisible && position == plexPosition(); }
+    int appIndexAt(int position) {
+        if (position < 0 || position >= getItemCount() || isPlexPosition(position)) return -1;
+        return position < dockCount() ? position : position - (plexVisible ? 1 : 0);
+    }
+    int positionForAppIndex(int index) {
+        return index < 0 || index >= items.size() ? -1 : index < dockCount() ? index : index + (plexVisible ? 1 : 0);
+    }
+    int plexItemCount() { return plexItems.size(); }
+    int plexIndexOf(String key) {
+        for (int i = 0; i < plexItems.size(); i++) {
+            PlexManager.MediaItem item = plexItems.get(i);
+            if ((item.serverId + "|" + item.ratingKey + "|" + item.type).equals(key)) return i;
+        }
+        return -1;
+    }
+
+    void setPlexVisible(boolean visible) {
+        if (plexVisible == visible) return;
+        plexVisible = visible;
+        notifyDataSetChanged();
+    }
+
+    void setPlexContent(PlexManager.FetchResult result, boolean loading) {
+        plexItems.clear();
+        offlineServers.clear();
+        if (result != null) {
+            plexItems.addAll(result.items);
+            offlineServers.addAll(result.offlineServers);
+        }
+        plexLoading = loading;
+        int position = plexPosition();
+        if (position >= 0) notifyItemChanged(position);
+    }
+
     @NonNull
     @Override
-    public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        if (viewType == TYPE_PLEX) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_plex_shelf, parent, false);
+            return new PlexHolder(v, new PlexManager(ctx), listener);
+        }
         View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_app, parent, false);
         return new Holder(v, listener);
     }
 
     @Override
-    public void onBindViewHolder(@NonNull Holder h, int position) {
-        Entry e = items.get(position);
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        if (isPlexPosition(position)) {
+            PlexHolder shelf = (PlexHolder) holder;
+            String state = plexLoading ? ctx.getString(R.string.plex_shelf_loading)
+                    : !offlineServers.isEmpty() ? ctx.getString(R.string.plex_shelf_offline, offlineServers.size())
+                    : plexItems.isEmpty() ? ctx.getString(R.string.plex_shelf_empty) : "";
+            shelf.status.setText(state);
+            shelf.posters.setItems(plexItems);
+            return;
+        }
+        Holder h = (Holder) holder;
+        int appIndex = appIndexAt(position);
+        if (appIndex < 0) return;
+        Entry e = items.get(appIndex);
         h.name.setText(e.label);
-        h.name.setVisibility(position < dockSize ? View.INVISIBLE : View.VISIBLE);   // the dock has no labels
+        h.name.setVisibility(isDockPosition(position) ? View.INVISIBLE : View.VISIBLE);   // the dock has no labels
         boolean focused = h.card.isFocused();   // a rebind after reload() can hit the focused tile
         h.name.setAlpha(focused ? 1f : 0f);
         h.card.setScaleX(focused ? FOCUS_SCALE : 1f);
@@ -170,36 +236,45 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
     @Override
     public int getItemCount() {
-        return items.size();
+        return items.size() + (plexVisible ? 1 : 0);
     }
 
     @Override
     public long getItemId(int position) {
-        return items.get(position).component.flattenToShortString().hashCode();
+        if (isPlexPosition(position)) return PLEX_ROW_ID;
+        int index = appIndexAt(position);
+        return index >= 0 ? items.get(index).component.flattenToShortString().hashCode() : Long.MIN_VALUE;
+    }
+
+    @Override
+    public int getItemViewType(int position) {
+        return isPlexPosition(position) ? TYPE_PLEX : TYPE_APP;
     }
 
     /** Stable key for the app at a position (its component), or null. */
     String keyAt(int position) {
-        return position >= 0 && position < items.size() ? items.get(position).component.flattenToShortString() : null;
+        int index = appIndexAt(position);
+        return index >= 0 ? items.get(index).component.flattenToShortString() : null;
     }
 
     /** Position of the app with this key, or -1 when it is gone. */
     int positionOf(String key) {
         if (key == null) return -1;
-        for (int i = 0; i < items.size(); i++) {
-            if (items.get(i).component.flattenToShortString().equals(key)) return i;
-        }
+        for (int i = 0; i < items.size(); i++)
+            if (items.get(i).component.flattenToShortString().equals(key)) return positionForAppIndex(i);
         return -1;
     }
 
     String labelAt(int position) {
-        return position >= 0 && position < items.size() ? items.get(position).label : "";
+        int index = appIndexAt(position);
+        return index >= 0 ? items.get(index).label : "";
     }
 
     /** A vivid colour sampled from the app's banner (or icon), cached per entry. */
     int ambientColorAt(int position) {
-        if (position < 0 || position >= items.size()) return 0xFF444444;
-        Entry e = items.get(position);
+        int index = appIndexAt(position);
+        if (index < 0) return 0xFF444444;
+        Entry e = items.get(index);
         if (e.ambient == 0) e.ambient = vividColor(e.banner != null ? e.banner : e.icon);
         return e.ambient;
     }
@@ -291,6 +366,30 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
                 if (focused && listener != null && pos != RecyclerView.NO_POSITION) {
                     listener.onTileFocused(pos, view);
                 }
+            });
+        }
+    }
+
+    static final class PlexHolder extends RecyclerView.ViewHolder {
+        final TextView status;
+        final View refresh;
+        final PlexShelfAdapter posters;
+
+        PlexHolder(View view, PlexManager manager, TileListener listener) {
+            super(view);
+            status = view.findViewById(R.id.plex_shelf_status);
+            refresh = view.findViewById(R.id.plex_refresh);
+            RecyclerView list = view.findViewById(R.id.plex_list);
+            list.setLayoutManager(new androidx.recyclerview.widget.LinearLayoutManager(
+                    view.getContext(), RecyclerView.HORIZONTAL, false));
+            list.setHasFixedSize(true);
+            posters = new PlexShelfAdapter(manager, listener);
+            list.setAdapter(posters);
+            refresh.setOnClickListener(v -> listener.onPlexRefreshRequested());
+            refresh.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() != KeyEvent.ACTION_DOWN
+                        || (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN)) return false;
+                return listener.onPlexVerticalKey(0, keyCode);
             });
         }
     }

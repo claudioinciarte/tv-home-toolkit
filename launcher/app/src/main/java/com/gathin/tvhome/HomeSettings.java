@@ -18,6 +18,26 @@ final class HomeSettings {
     private HomeSettings() {}
 
     static void show(Activity activity) {
+        boolean fire = HomeRedirect.isFireTv(activity);
+        String[] options = fire
+                ? new String[]{activity.getString(R.string.plex_settings_title),
+                    activity.getString(R.string.home_redirect_title),
+                    activity.getString(R.string.plex_device_settings)}
+                : new String[]{activity.getString(R.string.plex_settings_title),
+                    activity.getString(R.string.plex_device_settings)};
+        new AlertDialog.Builder(activity, R.style.Theme_TvHome_Dialog)
+                .setTitle(R.string.settings)
+                .setItems(options, (dialog, which) -> {
+                    if (which == 0) {
+                        activity.startActivity(new Intent(activity, PlexSettingsActivity.class));
+                    } else if (fire && which == 1) showHomeRedirect(activity);
+                    else open(activity, new Intent(Settings.ACTION_SETTINGS));
+                })
+                .setNegativeButton(R.string.plex_close, null)
+                .show();
+    }
+
+    private static void showHomeRedirect(Activity activity) {
         AlertDialog.Builder builder = new AlertDialog.Builder(activity, R.style.Theme_TvHome_Dialog);
         Context context = builder.getContext();
         float density = context.getResources().getDisplayMetrics().density;
