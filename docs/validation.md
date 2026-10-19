@@ -6,6 +6,15 @@ La implementación de Home 2.2 se usó en el Fire TV del caso. En esa sesión, c
 
 Con min_futurity=250, los registros finales fueron 501, 477 y 491 ms desde el evento de Amazon Home hasta la ventana de Home. Las pulsaciones se enviaron por ADB. No se probó reinicio ni mando físico. El caso Google TV funcionó tras la sustitución de su Home.
 
+## Fire TV: comparación de `min_futurity`
+
+El 19 de octubre de 2026 se comparó Home 2.2 en el Fire TV Stick 4K Max de 1.ª generación (AFTKA, Fire OS 7/API 28), con cinco pulsaciones `KEYCODE_HOME` por condición. La métrica va desde `Redirect requested` hasta `Home visible after` en `TvHomeRedirect`:
+
+- 250 ms: 495, 475, 451 y 452 ms; mediana 463,5 ms. El sondeo no capturó un quinto retorno.
+- 0 ms: el registro final confirmó 266, 289, 283 y 290 ms; mediana 286 ms. El sondeo no clasificó todos los intentos, por lo que la comparación es orientativa.
+
+La mediana bajó 177,5 ms (38 %). Las pulsaciones se simularon por ADB; no se midió un mando físico ni se probó un reinicio. Se restauró y verificó `min_futurity=250`; el servicio de redirección quedó habilitado.
+
 ## Empaquetado de este repositorio
 
 - El launcher del checkout nuevo compiló mediante scripts/Build-Launcher.ps1.
