@@ -17,7 +17,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
+import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -46,6 +49,9 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 
 /** Plex account, server and recent-library access. Network work is kept off the UI thread. */
 final class PlexManager {
@@ -227,6 +233,40 @@ final class PlexManager {
     void setSelectedLibraries(Set<String> ids, boolean all) {
         writeSet("libraries", ids);
         prefs.edit().putBoolean("all_libraries", all).apply();
+    }
+
+    boolean hasLocalRoute() { return !prefs.getString("local_route_server", "").isEmpty(); }
+    String localRouteServerId() { return prefs.getString("local_route_server", ""); }
+    String localRouteAddress() { return prefs.getString("local_route_address", ""); }
+    int localRoutePort() { return prefs.getInt("local_route_port", 32400); }
+
+    String localRouteSummary(List<Server> servers) {
+        if (!hasLocalRoute()) return "";
+        String name = "Plex";
+        for (Server server : servers) if (server.id.equals(localRouteServerId())) { name = server.name; break; }
+        return name + " · " + localRouteAddress() + ":" + localRoutePort();
+    }
+
+    void saveLocalRoute(Server server, String address, int port) throws IOException {
+        PlexLocalEndpoint.create(server.urls, address, port);
+        prefs.edit().putString("local_route_server", server.id).putString("local_route_address", address.trim())
+                .putInt("local_route_port", port).apply();
+        posterServerCache = null;
+    }
+
+    void clearLocalRoute() {
+        prefs.edit().remove("local_route_server").remove("local_route_address").remove("local_route_port").apply();
+        posterServerCache = null;
+    }
+
+    void testLocalRoute(Server server, String address, int port) throws Exception {
+        if (server.accessToken == null || server.accessToken.isEmpty())
+            throw new IOException("Vuelve a elegir el servidor Plex para obtener su credencial segura.");
+        PlexLocalEndpoint endpoint = PlexLocalEndpoint.create(server.urls, address, port);
+        JSONObject response = requestJson(new URL(endpoint.baseUrl + "/library/sections"),
+                server.accessToken, null, "GET", endpoint);
+        if (response.optJSONObject("MediaContainer") == null)
+            throw new IOException("La dirección no respondió como un servidor Plex accesible.");
     }
 
     private Set<String> readSet(String key) {
@@ -418,7 +458,7 @@ final class PlexManager {
             if (server == null) { offline.add(serverId); continue; }
             boolean loaded = false;
             Set<String> denied = new HashSet<>();
-            for (String base : server.urls) {
+            for (String base : connectionUrls(server)) {
                 try {
                     fresh.addAll(loadServerRecent(server, base, allLibraries(), selectedLibraryIds, denied));
                     loaded = true;
@@ -567,14 +607,17 @@ final class PlexManager {
         String token = item.accessToken;
         if ((token == null || token.isEmpty()) && server != null) token = server.accessToken;
         if (token == null || token.isEmpty()) return null;
-        List<String> urls = PlexPosterSources.ordered(item.baseUrl,
-                server == null ? Collections.emptyList() : server.urls);
+        List<String> availableUrls = server == null ? Collections.emptyList() : connectionUrls(server);
+        String preferredUrl = server != null && server.id.equals(localRouteServerId()) && !availableUrls.isEmpty()
+                ? availableUrls.get(0) : item.baseUrl;
+        List<String> urls = PlexPosterSources.ordered(preferredUrl, availableUrls);
         String path = "/photo/:/transcode?url=" + URLEncoder.encode(source, "UTF-8")
                 + "&width=" + width + "&height=" + height + "&minSize=1&upscale=0";
         Exception failure = null;
         for (String base : urls) {
             try {
-                byte[] bytes = requestBytes(new URL(base + path), token, "image/jpeg");
+                byte[] bytes = requestBytes(new URL(base + path), token, "image/jpeg",
+                        server == null ? null : routeFor(server, base));
                 android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
                 options.inJustDecodeBounds = true;
                 android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
@@ -782,7 +825,7 @@ final class PlexManager {
 
     private JSONObject requestServer(Server server, String path) throws Exception {
         Exception failure = null;
-        for (String base : server.urls) {
+        for (String base : connectionUrls(server)) {
             try { return requestServer(server, base, path); }
             catch (Exception e) { failure = e; }
         }
@@ -794,11 +837,34 @@ final class PlexManager {
         if (base == null || !base.startsWith("https://") || !path.startsWith("/")
                 || server.accessToken == null || server.accessToken.isEmpty())
             throw new IOException("Servidor Plex sin conexión HTTPS o credencial disponible.");
-        return requestJson(new URL(base + path), server.accessToken, null, "GET");
+        return requestJson(new URL(base + path), server.accessToken, null, "GET", routeFor(server, base));
+    }
+
+    private List<String> connectionUrls(Server server) throws IOException {
+        List<String> result = new ArrayList<>();
+        PlexLocalEndpoint endpoint = localEndpoint(server);
+        if (endpoint != null) result.add(endpoint.baseUrl);
+        for (String url : server.urls) if (!result.contains(url)) result.add(url);
+        return result;
+    }
+
+    private PlexLocalEndpoint localEndpoint(Server server) throws IOException {
+        if (!server.id.equals(localRouteServerId())) return null;
+        return PlexLocalEndpoint.create(server.urls, localRouteAddress(), localRoutePort());
+    }
+
+    private PlexLocalEndpoint routeFor(Server server, String base) throws IOException {
+        PlexLocalEndpoint endpoint = localEndpoint(server);
+        return endpoint != null && endpoint.baseUrl.equals(base) ? endpoint : null;
     }
 
     private JSONObject requestJson(URL url, String token, JSONObject body, String method) throws Exception {
-        String raw = new String(requestBytes(url, token, "application/json", body, method), StandardCharsets.UTF_8);
+        return requestJson(url, token, body, method, null);
+    }
+
+    private JSONObject requestJson(URL url, String token, JSONObject body, String method,
+                                   PlexLocalEndpoint endpoint) throws Exception {
+        String raw = new String(requestBytes(url, token, "application/json", body, method, endpoint), StandardCharsets.UTF_8);
         try { return new JSONObject(raw); }
         catch (JSONException notObject) {
             JSONObject wrapped = new JSONObject();
@@ -808,12 +874,25 @@ final class PlexManager {
     }
 
     private byte[] requestBytes(URL url, String token, String accept) throws Exception {
-        return requestBytes(url, token, accept, null, "GET");
+        return requestBytes(url, token, accept, null, "GET", null);
+    }
+
+    private byte[] requestBytes(URL url, String token, String accept, PlexLocalEndpoint endpoint) throws Exception {
+        return requestBytes(url, token, accept, null, "GET", endpoint);
     }
 
     private byte[] requestBytes(URL url, String token, String accept, JSONObject body, String method) throws Exception {
+        return requestBytes(url, token, accept, body, method, null);
+    }
+
+    private byte[] requestBytes(URL url, String token, String accept, JSONObject body, String method,
+                                PlexLocalEndpoint endpoint) throws Exception {
         if (!"https".equalsIgnoreCase(url.getProtocol())) throw new IOException("Plex requiere una conexión HTTPS.");
+        if (endpoint != null && (!url.getHost().equals(endpoint.tlsHost) || url.getPort() != endpoint.port))
+            throw new IOException("La ruta local no coincide con la identidad TLS del servidor Plex.");
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        if (endpoint != null) ((javax.net.ssl.HttpsURLConnection) connection)
+                .setSSLSocketFactory(new LocalRouteSocketFactory(endpoint.address, endpoint.tlsHost));
         connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(6000);
         connection.setReadTimeout(9000);
@@ -851,6 +930,44 @@ final class PlexManager {
                 return out.toByteArray();
             }
         } finally { connection.disconnect(); }
+    }
+
+    private static final class LocalRouteSocketFactory extends SSLSocketFactory {
+        private final SSLSocketFactory delegate = (SSLSocketFactory) SSLSocketFactory.getDefault();
+        private final String address, tlsHost;
+
+        LocalRouteSocketFactory(String address, String tlsHost) {
+            this.address = address;
+            this.tlsHost = tlsHost;
+        }
+
+        private Socket connect(int port) throws IOException {
+            Socket raw = new Socket();
+            try {
+                raw.connect(new InetSocketAddress(InetAddress.getByName(address), port), 6000);
+                raw.setSoTimeout(9000);
+                SSLSocket secure = (SSLSocket) delegate.createSocket(raw, tlsHost, port, true);
+                SSLParameters parameters = secure.getSSLParameters();
+                parameters.setEndpointIdentificationAlgorithm("HTTPS");
+                parameters.setServerNames(Collections.singletonList(new javax.net.ssl.SNIHostName(tlsHost)));
+                secure.setSSLParameters(parameters);
+                return secure;
+            } catch (IOException | RuntimeException error) {
+                try { raw.close(); } catch (IOException ignored) {}
+                throw error;
+            }
+        }
+
+        @Override public String[] getDefaultCipherSuites() { return delegate.getDefaultCipherSuites(); }
+        @Override public String[] getSupportedCipherSuites() { return delegate.getSupportedCipherSuites(); }
+        @Override public Socket createSocket(String host, int port) throws IOException { return connect(port); }
+        @Override public Socket createSocket(String host, int port, InetAddress local, int localPort) throws IOException { return connect(port); }
+        @Override public Socket createSocket(InetAddress host, int port) throws IOException { return connect(port); }
+        @Override public Socket createSocket(InetAddress host, int port, InetAddress local, int localPort) throws IOException { return connect(port); }
+        @Override public Socket createSocket(Socket socket, String host, int port, boolean autoClose) throws IOException {
+            if (socket != null) try { socket.close(); } catch (IOException ignored) {}
+            return connect(port);
+        }
     }
 
     private List<Server> parseServers(JSONObject response) throws JSONException {

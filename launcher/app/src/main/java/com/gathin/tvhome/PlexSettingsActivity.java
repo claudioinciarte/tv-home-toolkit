@@ -8,9 +8,11 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.InputType;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -27,8 +29,9 @@ public final class PlexSettingsActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PlexManager plex;
     private TextView account, serverSummary, librarySummary, status;
+    private TextView localServerSummary;
     private CheckBox showShelf;
-    private Button serverButton, libraryButton, saveButton;
+    private Button serverButton, libraryButton, localServerButton, clearLocalServerButton, saveButton;
     private List<PlexManager.Server> availableServers = new ArrayList<>();
     private List<PlexManager.Library> availableLibraries = new ArrayList<>();
     private PlexManager.Pin pendingPin;
@@ -78,6 +81,11 @@ public final class PlexSettingsActivity extends Activity {
         addButton(content, R.string.plex_link_account, this::linkOrUnlink);
         serverSummary = addLabel(content, "");
         serverButton = addButton(content, R.string.plex_choose_servers, this::chooseServers);
+        addSectionTitle(content, R.string.plex_local_server_title);
+        localServerSummary = addLabel(content, "");
+        addLabel(content, getString(R.string.plex_local_server_help));
+        localServerButton = addButton(content, R.string.plex_local_server_configure, this::configureLocalServer);
+        clearLocalServerButton = addButton(content, R.string.plex_local_server_clear, this::clearLocalServer);
         librarySummary = addLabel(content, "");
         libraryButton = addButton(content, R.string.plex_choose_libraries, this::chooseLibraries);
 
@@ -134,6 +142,17 @@ public final class PlexSettingsActivity extends Activity {
         return button;
     }
 
+    private TextView addSectionTitle(LinearLayout parent, int label) {
+        TextView view = new TextView(this);
+        view.setText(label);
+        view.setTextColor(0xFFFFFFFF);
+        view.setTextSize(23);
+        view.setTypeface(getFont(), Typeface.BOLD);
+        view.setPadding(0, dp(18), 0, dp(2));
+        parent.addView(view, matchWrap());
+        return view;
+    }
+
     private LinearLayout.LayoutParams matchWrap() {
         return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
@@ -149,6 +168,9 @@ public final class PlexSettingsActivity extends Activity {
         librarySummary.setText(plex.allLibraries()
                 ? getString(R.string.plex_all_libraries)
                 : getString(R.string.plex_selected_libraries, plex.selectedLibraries().size()));
+        localServerSummary.setText(plex.hasLocalRoute()
+                ? getString(R.string.plex_local_server_set, plex.localRouteSummary(availableServers))
+                : getString(R.string.plex_local_server_not_set));
         showShelf.setOnCheckedChangeListener(null);
         showShelf.setChecked(plex.enabled());
         showShelf.setOnCheckedChangeListener((button, checked) -> {
@@ -161,6 +183,8 @@ public final class PlexSettingsActivity extends Activity {
         });
         serverButton.setEnabled(plex.linked());
         libraryButton.setEnabled(plex.linked());
+        localServerButton.setEnabled(plex.linked() && !selected.isEmpty());
+        clearLocalServerButton.setEnabled(plex.hasLocalRoute());
         saveButton.setEnabled(plex.linked());
     }
 
@@ -307,6 +331,112 @@ public final class PlexSettingsActivity extends Activity {
                     reloadLibraries();
                     refreshLabels();
                 }).setNegativeButton(R.string.plex_cancel, null).show();
+    }
+
+    private void configureLocalServer() {
+        if (availableServers.isEmpty()) { reloadServers(); return; }
+        Set<String> selected = plex.selectedServers();
+        List<PlexManager.Server> candidates = new ArrayList<>();
+        for (PlexManager.Server server : availableServers) if (selected.contains(server.id)) candidates.add(server);
+        if (candidates.isEmpty()) {
+            message(R.string.plex_local_server_choose_first);
+            return;
+        }
+        if (candidates.size() == 1) {
+            showLocalServerEditor(candidates.get(0));
+            return;
+        }
+        String[] labels = new String[candidates.size()];
+        int checked = 0;
+        for (int i = 0; i < candidates.size(); i++) {
+            labels[i] = candidates.get(i).name;
+            if (candidates.get(i).id.equals(plex.localRouteServerId())) checked = i;
+        }
+        new AlertDialog.Builder(this, R.style.Theme_TvHome_Dialog)
+                .setTitle(R.string.plex_local_server_choose)
+                .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                    dialog.dismiss();
+                    showLocalServerEditor(candidates.get(which));
+                }).setNegativeButton(R.string.plex_cancel, null).show();
+    }
+
+    private void showLocalServerEditor(PlexManager.Server server) {
+        float d = getResources().getDisplayMetrics().density;
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(24), dp(8), dp(24), dp(8));
+        TextView explanation = new TextView(this);
+        explanation.setText(R.string.plex_local_server_secure_note);
+        explanation.setTextColor(0xFFBDBDC2);
+        explanation.setTextSize(16);
+        form.addView(explanation, matchWrap());
+
+        EditText address = new EditText(this);
+        address.setSingleLine(true);
+        address.setInputType(InputType.TYPE_CLASS_PHONE);
+        address.setHint(R.string.plex_local_server_ip_hint);
+        if (server.id.equals(plex.localRouteServerId())) address.setText(plex.localRouteAddress());
+        LinearLayout.LayoutParams inputParams = matchWrap();
+        inputParams.topMargin = Math.round(8 * d);
+        form.addView(address, inputParams);
+
+        EditText port = new EditText(this);
+        port.setSingleLine(true);
+        port.setInputType(InputType.TYPE_CLASS_NUMBER);
+        port.setHint(R.string.plex_local_server_port_hint);
+        port.setText(server.id.equals(plex.localRouteServerId())
+                ? Integer.toString(plex.localRoutePort()) : "32400");
+        LinearLayout.LayoutParams portParams = matchWrap();
+        portParams.topMargin = Math.round(4 * d);
+        form.addView(port, portParams);
+
+        AlertDialog dialog = new AlertDialog.Builder(this, R.style.Theme_TvHome_Dialog)
+                .setTitle(getString(R.string.plex_local_server_editor, server.name))
+                .setView(form)
+                .setPositiveButton(R.string.plex_local_server_test_save, null)
+                .setNegativeButton(R.string.plex_cancel, null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            String ip = address.getText().toString().trim();
+            int portNumber;
+            try { portNumber = Integer.parseInt(port.getText().toString().trim()); }
+            catch (NumberFormatException e) { message(R.string.plex_local_server_invalid); return; }
+            if (!PlexLocalEndpoint.isPrivateIpv4(ip) || portNumber < 1 || portNumber > 65535) {
+                message(R.string.plex_local_server_invalid);
+                return;
+            }
+            Button save = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            save.setEnabled(false);
+            status.setText(R.string.plex_local_server_testing);
+            PlexManager.execute(() -> {
+                plex.testLocalRoute(server, ip, portNumber);
+                return Boolean.TRUE;
+            }, (result, error) -> runOnUiThread(() -> {
+                if (isFinishing() || !dialog.isShowing()) return;
+                save.setEnabled(true);
+                if (error != null) {
+                    status.setText(R.string.plex_local_server_failed);
+                    message(error.getMessage());
+                    return;
+                }
+                try { plex.saveLocalRoute(server, ip, portNumber); }
+                catch (Exception e) { status.setText(R.string.plex_local_server_failed); message(e.getMessage()); return; }
+                dialog.dismiss();
+                availableLibraries.clear();
+                status.setText(R.string.plex_local_server_saved);
+                reloadLibraries();
+                refreshLabels();
+            }));
+        }));
+        dialog.show();
+    }
+
+    private void clearLocalServer() {
+        plex.clearLocalRoute();
+        availableLibraries.clear();
+        refreshLabels();
+        status.setText(R.string.plex_local_server_cleared);
+        reloadLibraries();
     }
 
     private void chooseLibraries() {

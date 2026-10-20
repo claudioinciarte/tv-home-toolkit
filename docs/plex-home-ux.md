@@ -19,6 +19,8 @@ La dirección toma la base “true-black flat” de Taste Skill y conserva las i
 - Izquierda y derecha cambian el elemento, el fondo y el detalle; abajo devuelve el foco al favorito correspondiente. Arriba conserva la ruta existente a Ajustes.
 - Las valoraciones solo se muestran si Plex las entrega junto a sus metadatos.
 
+En Ajustes de Plex, «Conexión local» queda junto al selector de servidores. El usuario elige uno de sus servidores seleccionados, escribe una IPv4 privada y un puerto, y usa «Probar y guardar». La dirección se guarda solo si responde como Plex por HTTPS; el certificado sigue validándose. Se puede quitar la ruta para volver al orden anunciado por Plex.
+
 La altura del carrusel se calcula según el espacio sobre el dock. La lista deja separación sobre el bloque de título, permite el pequeño crecimiento de foco y conserva el margen con el dock.
 
 ## Validación en Fire TV
@@ -26,3 +28,5 @@ La altura del carrusel se calcula según el espacio sobre el dock. La lista deja
 Validado en el Fire TV Stick 4K Max a 1920 × 1080 con densidad efectiva de 320 dpi. Se revisaron las tarjetas enfocadas y sin foco, el título/año, el cambio de detalle con DPAD derecha, la vuelta al dock con DPAD abajo y el retorno al elemento correspondiente con DPAD arriba. La selección de Plex se conserva cuando termina una actualización del catálogo.
 
 Las capturas de prueba quedaron fuera del repositorio: muestran carátulas y títulos privados de la biblioteca. En la selección revisada Plex no devolvió una valoración para mostrar; la presentación de la insignia con una valoración disponible queda pendiente de un título que la incluya.
+
+La sección nueva para configurar una ruta local se compiló, pero queda pendiente de instalar y recorrer con el mando; no se verificaron todavía el teclado en pantalla ni una conexión TLS al servidor configurado.
