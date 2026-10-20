@@ -1,5 +1,9 @@
 package com.gathin.tvhome;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -59,10 +63,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private FrameLayout plexCarousel;
     private RecyclerView plexList;
     private PlexShelfAdapter plexPosters;
-    private ImageView plexBackdrop;
+    private ImageView plexBackdrop, plexBackdropAlt, plexBackdropFront, plexBackdropBack;
+    private AnimatorSet plexBackdropTransition;
+    private View plexHeroDetails;
     private TextView plexShelfTitle, plexConnectionStatus, plexHeroTitle, plexHeroSubtitle, plexHeroRating, plexStatus;
     private View plexRefresh;
     private String plexBackdropKey;
+    private int plexDetailsGeneration;
     private GlassView glass;
     private View ambient;
     private TextView heroName;
@@ -130,11 +137,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnWifi = findViewById(R.id.btnWifi);
         plexCarousel = findViewById(R.id.plex_carousel);
         plexBackdrop = findViewById(R.id.plex_backdrop);
+        plexBackdropAlt = findViewById(R.id.plex_backdrop_alt);
+        plexBackdropFront = plexBackdrop;
+        plexBackdropBack = plexBackdropAlt;
         plexShelfTitle = findViewById(R.id.plex_shelf_title);
         plexConnectionStatus = findViewById(R.id.plex_connection_status);
         plexHeroTitle = findViewById(R.id.plex_hero_title);
         plexHeroSubtitle = findViewById(R.id.plex_hero_subtitle);
         plexHeroRating = findViewById(R.id.plex_hero_rating);
+        plexHeroDetails = findViewById(R.id.plex_hero_details);
         plexStatus = findViewById(R.id.plex_shelf_status);
         plexRefresh = findViewById(R.id.plex_refresh);
         plexList = findViewById(R.id.plex_list);
@@ -179,6 +190,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
             public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                if (plexHomeVisible) plexCarousel.setTranslationY(-rv.computeVerticalScrollOffset());
                 if (!glassShown) return;
                 glassTargetY -= dy;
                 if (springY.isRunning()) springY.animateToFinalPosition(glassTargetY);
@@ -239,6 +251,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         plex = new PlexManager(this);
         plexHomeVisible = plex.enabled() && plex.configured();
         plexCarousel.setVisibility(plexHomeVisible ? View.VISIBLE : View.GONE);
+        plexCarousel.setTranslationY(plexHomeVisible ? -grid.computeVerticalScrollOffset() : 0f);
         plexBackdropKey = null;
         showPlexContent(plex.loadCache(), false);
         grid.scheduleLayoutAnimation();
@@ -421,12 +434,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     @Override
     public void onPlexFocused(int index, PlexManager.MediaItem item, View card) {
+        int direction = index < lastPlexFocusedSlot ? -1 : 1;
         lastPlexFocusedKey = item.serverId + "|" + item.ratingKey + "|" + item.type;
         lastPlexFocusedSlot = index;
         lastFocusedKey = null;
         hideHero();
         hideGlass();
-        showPlexDetails(item, true);
+        showPlexDetails(item, true, direction);
     }
 
     @Override
@@ -536,17 +550,27 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         plexList.setVisibility(hasItems ? View.VISIBLE : View.GONE);
         if (hasItems) {
             int selected = plexPosters.positionOf(lastPlexFocusedKey);
-            showPlexDetails(items.get(selected >= 0 ? selected : 0), false);
+            showPlexDetails(items.get(selected >= 0 ? selected : 0), false, 1);
         } else {
+            plexDetailsGeneration++;
+            plexHeroDetails.animate().cancel();
             plexHeroTitle.setText("");
             plexHeroSubtitle.setText("");
             plexHeroRating.setVisibility(View.GONE);
+            plexHeroDetails.setAlpha(1f);
+            plexHeroDetails.setTranslationX(0f);
             plexBackdropKey = null;
-            plexBackdrop.animate().alpha(0f).setDuration(120).start();
+            settlePlexBackdropTransition();
+            ImageView backdrop = plexBackdropFront;
+            backdrop.animate().alpha(0f).setDuration(120).withEndAction(() -> {
+                if (plexBackdropKey != null) return;
+                backdrop.setImageDrawable(null);
+                plexBackdropBack.setImageDrawable(null);
+            }).start();
         }
     }
 
-    private void showPlexDetails(PlexManager.MediaItem item, boolean animate) {
+    private void showPlexDetails(PlexManager.MediaItem item, boolean animate, int direction) {
         if (item == null) return;
         String subtitle;
         if (item.type.equals("show")) {
@@ -556,21 +580,27 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             subtitle = item.year > 0 ? String.valueOf(item.year) : getString(R.string.plex_type_movie);
         }
         final String detailText = subtitle;
+        final int generation = ++plexDetailsGeneration;
+        plexHeroDetails.animate().cancel();
         Runnable update = () -> {
+            if (generation != plexDetailsGeneration) return;
             plexHeroTitle.setText(item.title);
             plexHeroSubtitle.setText(detailText);
             plexHeroRating.setText(item.rating);
             plexHeroRating.setVisibility(item.rating.isEmpty() ? View.GONE : View.VISIBLE);
-            plexHeroTitle.setTranslationY(0f);
-            plexHeroSubtitle.setTranslationY(0f);
-            plexHeroTitle.animate().alpha(1f).setDuration(180).start();
-            plexHeroSubtitle.animate().alpha(1f).setDuration(180).start();
-            plexHeroRating.animate().alpha(item.rating.isEmpty() ? 0f : 1f).setDuration(180).start();
+            if (!animate) {
+                plexHeroDetails.setAlpha(1f);
+                plexHeroDetails.setTranslationX(0f);
+                return;
+            }
+            float enterX = direction * 8 * density;
+            plexHeroDetails.setAlpha(0f);
+            plexHeroDetails.setTranslationX(enterX);
+            plexHeroDetails.animate().alpha(1f).translationX(0f).setDuration(200).start();
         };
         if (animate) {
-            plexHeroTitle.animate().alpha(0f).translationY(6 * density).setDuration(120).withEndAction(update).start();
-            plexHeroSubtitle.animate().alpha(0f).translationY(6 * density).setDuration(120).start();
-            plexHeroRating.animate().alpha(0f).setDuration(100).start();
+            float exitX = -direction * 8 * density;
+            plexHeroDetails.animate().alpha(0f).translationX(exitX).setDuration(120).withEndAction(update).start();
         } else update.run();
         showPlexBackdrop(item);
     }
@@ -579,19 +609,59 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         String key = item.serverId + "|" + item.art + "|" + item.thumb;
         if (key.equals(plexBackdropKey)) return;
         plexBackdropKey = key;
-        plexBackdrop.animate().alpha(0f).setDuration(120).withEndAction(() -> {
-            if (!key.equals(plexBackdropKey)) return;
-            plexBackdrop.setImageDrawable(null);
-            PlexManager current = plex;
-            PlexManager.execute(() -> current == null ? null : current.backdrop(item), (bitmap, error) ->
-                    plexBackdrop.post(() -> {
-                        if (!key.equals(plexBackdropKey)) return;
-                        if (error == null && bitmap != null) {
-                            plexBackdrop.setImageBitmap(bitmap);
-                            plexBackdrop.animate().alpha(0.40f).setDuration(320).start();
+        settlePlexBackdropTransition();
+        PlexManager current = plex;
+        PlexManager.execute(() -> current == null ? null : current.backdrop(item), (bitmap, error) ->
+                plexBackdrop.post(() -> {
+                    if (!key.equals(plexBackdropKey) || error != null || bitmap == null) return;
+                    ImageView from = plexBackdropFront;
+                    if (from.getDrawable() == null) {
+                        from.setImageBitmap(bitmap);
+                        from.setAlpha(0f);
+                        from.animate().alpha(0.40f).setDuration(320).start();
+                        return;
+                    }
+                    ImageView to = plexBackdropBack;
+                    to.setImageBitmap(bitmap);
+                    to.setAlpha(0f);
+                    AnimatorSet transition = new AnimatorSet();
+                    transition.playTogether(
+                            ObjectAnimator.ofFloat(from, View.ALPHA, from.getAlpha(), 0f),
+                            ObjectAnimator.ofFloat(to, View.ALPHA, 0f, 0.40f));
+                    transition.setDuration(320);
+                    transition.addListener(new AnimatorListenerAdapter() {
+                        private boolean cancelled;
+                        @Override public void onAnimationCancel(Animator animation) { cancelled = true; }
+                        @Override public void onAnimationEnd(Animator animation) {
+                            if (cancelled || !key.equals(plexBackdropKey)
+                                    || plexBackdropTransition != transition) return;
+                            plexBackdropTransition = null;
+                            from.setImageDrawable(null);
+                            from.setAlpha(0f);
+                            plexBackdropFront = to;
+                            plexBackdropBack = from;
                         }
-                    }));
-        }).start();
+                    });
+                    plexBackdropTransition = transition;
+                    transition.start();
+                }));
+    }
+
+    private void settlePlexBackdropTransition() {
+        AnimatorSet transition = plexBackdropTransition;
+        plexBackdropTransition = null;
+        if (transition != null) transition.cancel();
+        plexBackdropFront.animate().cancel();
+        plexBackdropBack.animate().cancel();
+        if (plexBackdropBack.getDrawable() != null
+                && plexBackdropBack.getAlpha() > plexBackdropFront.getAlpha()) {
+            ImageView visible = plexBackdropFront;
+            plexBackdropFront = plexBackdropBack;
+            plexBackdropBack = visible;
+        }
+        plexBackdropFront.setAlpha(plexBackdropFront.getDrawable() == null ? 0f : 0.40f);
+        plexBackdropBack.setAlpha(0f);
+        plexBackdropBack.setImageDrawable(null);
     }
 
     /** Shows the Wi-Fi network name on the button when we can read it, otherwise the connection type. */

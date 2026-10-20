@@ -15,6 +15,18 @@
     <string name="dream_name">Reloj</string>
     <string name="plex_settings_title">Contenido de Plex</string>
     <string name="plex_settings_explanation">Vincula Plex con un código, elige servidores y bibliotecas de películas o series, y muestra las últimas incorporaciones en Inicio. Android mantiene separada la cuenta de este launcher de la app Plex.</string>
+    <string name="plex_settings_menu">AJUSTES</string>
+    <string name="plex_settings_details">DETALLES</string>
+    <string name="plex_settings_side_note">Gestiona la conexión y elige qué aparece en Inicio.</string>
+    <string name="plex_settings_account_detail">Vincula o desvincula la cuenta Plex de este launcher. La app Plex conserva su propio inicio de sesión.</string>
+    <string name="plex_settings_servers_detail">Elige qué servidores Plex aportan contenido a la fila de Inicio. Puedes seleccionar servidores locales y remotos.</string>
+    <string name="plex_settings_libraries_detail">Incluye todas las bibliotecas compatibles de películas y series o selecciona cuáles mostrar.</string>
+    <string name="plex_settings_local_detail">Indica una IPv4 privada y un puerto para priorizar la conexión local directa a un servidor Plex seleccionado.</string>
+    <string name="plex_settings_clear_local_detail">Quita la dirección manual y vuelve a usar las rutas anunciadas por Plex.</string>
+    <string name="plex_settings_shelf_detail">Muestra u oculta en Inicio la fila de películas y series añadidas recientemente a Plex.</string>
+    <string name="plex_settings_refresh_detail">Busca las últimas incorporaciones y actualiza ahora sus pósteres y detalles.</string>
+    <string name="plex_settings_save_detail">Guarda las opciones de Plex y vuelve a Inicio con la fila activada.</string>
+    <string name="plex_settings_close_detail">Cierra los ajustes de Plex y vuelve al launcher.</string>
     <string name="plex_link_account">Vincular cuenta de Plex</string>
     <string name="plex_account_connected">Conectado como %1$s</string>
     <string name="plex_account_unlinked">No hay una cuenta Plex vinculada</string>
@@ -63,6 +75,7 @@
     <string name="plex_completing_link">Terminando la vinculación…</string>
     <string name="plex_link_success">Conectado como %1$s</string>
     <string name="plex_loading_servers">Cargando servidores Plex…</string>
+    <string name="plex_loading_libraries">Cargando bibliotecas Plex…</string>
     <string name="plex_no_libraries">No se encontraron bibliotecas accesibles de películas o series.</string>
     <string name="plex_choose_one_library">Elige al menos una biblioteca.</string>
     <string name="plex_save">Guardar</string>

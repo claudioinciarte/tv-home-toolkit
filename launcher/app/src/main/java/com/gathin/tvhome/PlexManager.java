@@ -263,6 +263,10 @@ final class PlexManager {
         if (server.accessToken == null || server.accessToken.isEmpty())
             throw new IOException("Vuelve a elegir el servidor Plex para obtener su credencial segura.");
         PlexLocalEndpoint endpoint = PlexLocalEndpoint.create(server.urls, address, port);
+        JSONObject identity = requestJson(new URL(endpoint.baseUrl + "/identity"),
+                null, null, "GET", endpoint).optJSONObject("MediaContainer");
+        if (identity == null || !server.id.equals(identity.optString("machineIdentifier")))
+            throw new IOException("La dirección local pertenece a otro servidor Plex. Revisa el servidor elegido y la IP.");
         JSONObject response = requestJson(new URL(endpoint.baseUrl + "/library/sections"),
                 server.accessToken, null, "GET", endpoint);
         if (response.optJSONObject("MediaContainer") == null)
@@ -318,8 +322,7 @@ final class PlexManager {
         JSONObject user = requestJson(new URL(USER_API), token, null, "GET");
         String name = user.optString("username");
         if (name.isEmpty()) name = user.optString("title", "Plex");
-        JSONObject resources = requestJson(new URL(RESOURCE_API), token, null, "GET");
-        List<Server> servers = parseServers(resources);
+        List<Server> servers = fetchServers(token);
         synchronized (PlexManager.class) {
             if (generation != SESSION_GENERATION.get()) return new ArrayList<>();
             saveToken(token);
@@ -334,8 +337,7 @@ final class PlexManager {
         int generation = SESSION_GENERATION.get();
         try {
             String token = currentToken();
-            JSONObject resources = requestJson(new URL(RESOURCE_API), token, null, "GET");
-            List<Server> servers = parseServers(resources);
+            List<Server> servers = fetchServers(token);
             synchronized (PlexManager.class) {
                 if (generation == SESSION_GENERATION.get())
                     {
@@ -429,7 +431,7 @@ final class PlexManager {
         List<Server> servers = cachedServers();
         if (accountToken != null) {
             try {
-                List<Server> refreshed = parseServers(requestJson(new URL(RESOURCE_API), accountToken, null, "GET"));
+                List<Server> refreshed = fetchServers(accountToken);
                 Set<String> found = new HashSet<>();
                 for (Server server : refreshed) found.add(server.id);
                 for (Server cached : servers) {
@@ -890,9 +892,17 @@ final class PlexManager {
         if (!"https".equalsIgnoreCase(url.getProtocol())) throw new IOException("Plex requiere una conexión HTTPS.");
         if (endpoint != null && (!url.getHost().equals(endpoint.tlsHost) || url.getPort() != endpoint.port))
             throw new IOException("La ruta local no coincide con la identidad TLS del servidor Plex.");
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        if (endpoint != null) ((javax.net.ssl.HttpsURLConnection) connection)
-                .setSSLSocketFactory(new LocalRouteSocketFactory(endpoint.address, endpoint.tlsHost));
+        URL transport = endpoint == null ? url : new URL("https", endpoint.address, endpoint.port, url.getFile());
+        HttpURLConnection connection = (HttpURLConnection) transport.openConnection();
+        if (endpoint != null) {
+            javax.net.ssl.HttpsURLConnection secure = (javax.net.ssl.HttpsURLConnection) connection;
+            secure.setSSLSocketFactory(new LocalRouteSocketFactory(endpoint.address, endpoint.tlsHost));
+            javax.net.ssl.HostnameVerifier verifier = javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier();
+            // The transport uses an IP; certificate names must match the Plex Direct identity instead.
+            secure.setHostnameVerifier((host, session) -> host.equals(endpoint.address)
+                    && verifier.verify(endpoint.tlsHost, session));
+            connection.setRequestProperty("Host", url.getAuthority());
+        }
         connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(6000);
         connection.setReadTimeout(9000);
@@ -946,16 +956,19 @@ final class PlexManager {
             try {
                 raw.connect(new InetSocketAddress(InetAddress.getByName(address), port), 6000);
                 raw.setSoTimeout(9000);
-                SSLSocket secure = (SSLSocket) delegate.createSocket(raw, tlsHost, port, true);
-                SSLParameters parameters = secure.getSSLParameters();
-                parameters.setEndpointIdentificationAlgorithm("HTTPS");
-                parameters.setServerNames(Collections.singletonList(new javax.net.ssl.SNIHostName(tlsHost)));
-                secure.setSSLParameters(parameters);
-                return secure;
+                return wrap(raw, port, true);
             } catch (IOException | RuntimeException error) {
                 try { raw.close(); } catch (IOException ignored) {}
                 throw error;
             }
+        }
+
+        private Socket wrap(Socket raw, int port, boolean autoClose) throws IOException {
+            SSLSocket secure = (SSLSocket) delegate.createSocket(raw, tlsHost, port, autoClose);
+            SSLParameters parameters = secure.getSSLParameters();
+            parameters.setServerNames(Collections.singletonList(new javax.net.ssl.SNIHostName(tlsHost)));
+            secure.setSSLParameters(parameters);
+            return secure;
         }
 
         @Override public String[] getDefaultCipherSuites() { return delegate.getDefaultCipherSuites(); }
@@ -965,18 +978,49 @@ final class PlexManager {
         @Override public Socket createSocket(InetAddress host, int port) throws IOException { return connect(port); }
         @Override public Socket createSocket(InetAddress host, int port, InetAddress local, int localPort) throws IOException { return connect(port); }
         @Override public Socket createSocket(Socket socket, String host, int port, boolean autoClose) throws IOException {
-            if (socket != null) try { socket.close(); } catch (IOException ignored) {}
-            return connect(port);
+            return wrap(socket, port, autoClose);
         }
     }
 
-    private List<Server> parseServers(JSONObject response) throws JSONException {
+    private List<Server> fetchServers(String accountToken) throws Exception {
+        JSONObject response = requestJson(new URL(RESOURCE_API), accountToken, null, "GET");
+        Map<String, String> deviceTokens = new HashMap<>();
+        JSONArray resources = resourceArray(response);
+        for (int i = 0; i < resources.length(); i++) {
+            JSONObject resource = resources.optJSONObject(i);
+            if (resource == null || !resource.optBoolean("owned")
+                    || !resource.optString("provides").contains("server")
+                    || !PlexServerCredentials.isJwt(resource.optString("accessToken"))) continue;
+            try {
+                JSONArray devices = resourceArray(requestJson(new URL(CLOUD + "/api/v2/devices"),
+                        accountToken, null, "GET"));
+                for (int n = 0; n < devices.length(); n++) {
+                    JSONObject device = devices.optJSONObject(n);
+                    if (device == null || !device.optString("provides").contains("server")) continue;
+                    String id = device.optString("clientIdentifier");
+                    String token = device.optString("token", device.optString("accessToken", ""));
+                    if (!id.isEmpty()) deviceTokens.put(id, token);
+                }
+            } catch (Exception ignored) {
+                // Keep the resource credential if Plex's optional compatibility endpoint is unavailable.
+            }
+            break;
+        }
+        return parseServers(response, deviceTokens);
+    }
+
+    private static JSONArray resourceArray(JSONObject response) {
         JSONArray resources = response.optJSONArray("resources");
+        if (resources == null) resources = response.optJSONArray("devices");
         if (resources == null && response.has("MediaContainer")) {
             JSONObject container = response.optJSONObject("MediaContainer");
             if (container != null) resources = container.optJSONArray("Device");
         }
-        if (resources == null) return new ArrayList<>();
+        return resources == null ? new JSONArray() : resources;
+    }
+
+    private List<Server> parseServers(JSONObject response, Map<String, String> deviceTokens) throws JSONException {
+        JSONArray resources = resourceArray(response);
         List<Server> result = new ArrayList<>();
         for (int i = 0; i < resources.length(); i++) {
             JSONObject resource = resources.optJSONObject(i);
@@ -1005,6 +1049,7 @@ final class PlexManager {
             if (!urls.isEmpty()) {
                 String accessToken = resource.optString("accessToken", "");
                 if (accessToken.equals("null")) accessToken = "";
+                accessToken = PlexServerCredentials.compatible(id, resource.optBoolean("owned"), accessToken, deviceTokens);
                 result.add(new Server(id, resource.optString("name", "Plex"), accessToken, urls));
             }
         }

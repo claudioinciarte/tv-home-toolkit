@@ -16,7 +16,11 @@ Select “Save and show” after setup. The carousel contains up to 20 items ord
 
 Plex cloud account and server requests use HTTPS with the platform TLS checks enabled. Server connection URIs come from the linked Plex account’s resource list; HTTPS local connections are tried before remote and relay connections. Redirects are rejected. The account JWT goes only to Plex cloud; Plex resource tokens are encrypted with Android Keystore and used for the selected server’s library and poster requests. Poster requests use the same server and a server-side size limit.
 
+For an owned server, Plex's resources endpoint can return a JWT that the server's remote path rejects with HTTP 401 even while account authentication succeeds. If that owned resource has a JWT, the launcher also queries Plex's devices endpoint and uses its traditional server credential only when the server's client identifier matches exactly. Shared servers retain their resource credentials and existing traditional resource tokens remain preferred. Only credentials for selected servers are persisted, encrypted with Android Keystore. If the optional devices lookup is unavailable, the original resource credential remains available to try.
+
 Settings also allows one selected server to use a manual local route: a private IPv4 address and its local Plex port. The launcher derives that server’s Plex Direct hostname from the account resource, opens the socket to the entered IP, and keeps the normal TLS certificate, hostname and SNI checks enabled. This avoids relying on local DNS for that route. The manual route is tried first; Plex’s advertised HTTPS routes remain fallbacks. The address and port stay in app-private preferences and are cleared when Plex is unlinked. Saving a route requires a successful authenticated HTTPS request to that server.
+
+The HTTPS transport URL uses the private IP so Android does not resolve the Plex Direct hostname before creating its socket. TLS still uses the platform trust store and verifies the derived Plex Direct certificate name. The local test checks `/identity` against the selected server's machine identifier before sending its credential. A different server or certificate fails the test. The IPv4 field uses the phone keyboard to make dots available on Fire TV, and local test errors stay visible in the editor.
 
 Plex PIN authentication registers an RSA key in Android Keystore and uses the RS256 JWT flow. The private key never leaves the device. The short-lived Plex token is encrypted with an AES-GCM key in Android Keystore and refreshed when its expiry is near. The app uses private preferences and allowBackup=false. Unlinking clears the token, key material, server/library selections and cached titles; an in-flight catalogue refresh cannot restore the cleared cache.
 
@@ -37,6 +41,20 @@ Plex Home managed users/PIN profiles are not switched from this settings screen.
 - Insecure HTTP-only server connections are rejected.
 - A missing server or library is not silently replaced with a different selection.
 - No Plex username/password is collected by this app.
+
+## Investigating HTTP 401
+
+Distinguish Plex account validation from server authorization: a successful account and resources request does not prove that a particular server accepts its resource credential. A 401 on the server should be checked against that server's exact identity and HTTPS path before asking the user to link their account again.
+
+Debug builds include an explicitly invoked, read-only instrumentation probe:
+
+```text
+adb -s <DEVICE:ADB_PORT> shell am instrument -w -e localAddress <PRIVATE_IPV4> -e localPort <PLEX_PORT> com.gathin.tvhome/.PlexAuthDiagnostics
+```
+
+Select the server to investigate first. The probe compares account validation, resource and device credential formats, the local server identity, and HTTPS library request status. It reports no credential values, account names, server identifiers or library contents. It does not change the server/library selection or save a local route. Its results may describe local anonymous/invalid-credential probes; a locally permitted request alone must not be taken as proof that a token works remotely.
+
+Verified on the authorized Fire TV/API 28: the same owned-server remote endpoint returned 401 with its resource JWT and 200 with its matching traditional device credential. The local route passed HTTPS and the expected identity; an unrelated server's certificate was rejected. Regression checks cover exact server matching, preserving shared-server authorization and retaining the original credential when no compatible device token exists.
 
 ## User interface
 
