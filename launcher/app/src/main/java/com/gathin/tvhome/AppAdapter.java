@@ -38,13 +38,17 @@ import java.util.Set;
  * App tiles. The first {@link MainActivity#COLUMNS} positions are the pinned dock (favourites, fixed order),
  * the rest is alphabetical.
  */
-public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
+public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     interface TileListener {
         void onTileFocused(int position, View card);
 
         /** Called for D-pad Up/Down on a tile. Return true when handled. */
         boolean onTileVerticalKey(int position, int keyCode);
+
+        void onPlexFocused(int index, PlexManager.MediaItem item, View card);
+        boolean onPlexVerticalKey(int index, int keyCode);
+        void onPlexRefreshRequested();
     }
 
     static final class Entry {
@@ -65,7 +69,6 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
     }
 
     static final float FOCUS_SCALE = 1.10f;
-
     private final Context ctx;
     private final TileListener listener;
     private final int dockSize;
@@ -115,18 +118,31 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         notifyDataSetChanged();
     }
 
+    int dockCount() { return Math.min(dockSize, items.size()); }
+    int getAppCount() { return items.size(); }
+    boolean isDockPosition(int position) { return position >= 0 && position < dockCount(); }
+    int appIndexAt(int position) {
+        return position >= 0 && position < items.size() ? position : -1;
+    }
+    int positionForAppIndex(int index) {
+        return index >= 0 && index < items.size() ? index : -1;
+    }
+
     @NonNull
     @Override
-    public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_app, parent, false);
         return new Holder(v, listener);
     }
 
     @Override
-    public void onBindViewHolder(@NonNull Holder h, int position) {
-        Entry e = items.get(position);
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        Holder h = (Holder) holder;
+        int appIndex = appIndexAt(position);
+        if (appIndex < 0) return;
+        Entry e = items.get(appIndex);
         h.name.setText(e.label);
-        h.name.setVisibility(position < dockSize ? View.INVISIBLE : View.VISIBLE);   // the dock has no labels
+        h.name.setVisibility(isDockPosition(position) ? View.INVISIBLE : View.VISIBLE);   // the dock has no labels
         boolean focused = h.card.isFocused();   // a rebind after reload() can hit the focused tile
         h.name.setAlpha(focused ? 1f : 0f);
         h.card.setScaleX(focused ? FOCUS_SCALE : 1f);
@@ -175,31 +191,34 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
 
     @Override
     public long getItemId(int position) {
-        return items.get(position).component.flattenToShortString().hashCode();
+        int index = appIndexAt(position);
+        return index >= 0 ? items.get(index).component.flattenToShortString().hashCode() : Long.MIN_VALUE;
     }
 
     /** Stable key for the app at a position (its component), or null. */
     String keyAt(int position) {
-        return position >= 0 && position < items.size() ? items.get(position).component.flattenToShortString() : null;
+        int index = appIndexAt(position);
+        return index >= 0 ? items.get(index).component.flattenToShortString() : null;
     }
 
     /** Position of the app with this key, or -1 when it is gone. */
     int positionOf(String key) {
         if (key == null) return -1;
-        for (int i = 0; i < items.size(); i++) {
-            if (items.get(i).component.flattenToShortString().equals(key)) return i;
-        }
+        for (int i = 0; i < items.size(); i++)
+            if (items.get(i).component.flattenToShortString().equals(key)) return positionForAppIndex(i);
         return -1;
     }
 
     String labelAt(int position) {
-        return position >= 0 && position < items.size() ? items.get(position).label : "";
+        int index = appIndexAt(position);
+        return index >= 0 ? items.get(index).label : "";
     }
 
     /** A vivid colour sampled from the app's banner (or icon), cached per entry. */
     int ambientColorAt(int position) {
-        if (position < 0 || position >= items.size()) return 0xFF444444;
-        Entry e = items.get(position);
+        int index = appIndexAt(position);
+        if (index < 0) return 0xFF444444;
+        Entry e = items.get(index);
         if (e.ambient == 0) e.ambient = vividColor(e.banner != null ? e.banner : e.icon);
         return e.ambient;
     }
@@ -294,4 +313,5 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             });
         }
     }
+
 }

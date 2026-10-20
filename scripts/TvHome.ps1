@@ -91,8 +91,8 @@ if (-not $stableId -or $stableId -eq 'null') { throw 'No se obtuvo identidad est
 $deviceHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($stableId)))
 $all = @((Shell @('pm','list','packages','--user','0')) -split '\r?\n' | ForEach-Object { $_ -replace '^package:','' } | Where-Object { $_ })
 $disabled = @((Shell @('pm','list','packages','-d','--user','0')) -split '\r?\n' | ForEach-Object { $_ -replace '^package:','' } | Where-Object { $_ })
-$home = Shell @('cmd','package','resolve-activity','--brief','--user','0','-a','android.intent.action.MAIN','-c','android.intent.category.HOME')
-$component = @($home -split '\r?\n' | Where-Object { $_ -match '^[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+' }) | Select-Object -Last 1
+$homeResolution = Shell @('cmd','package','resolve-activity','--brief','--user','0','-a','android.intent.action.MAIN','-c','android.intent.category.HOME')
+$component = @($homeResolution -split '\r?\n' | Where-Object { $_ -match '^[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+' }) | Select-Object -Last 1
 $actualPlatform = if ($maker -eq 'Amazon' -and $all -contains 'com.amazon.tv.launcher') { 'FireTV' } elseif ($all -contains 'com.google.android.apps.tv.launcherx') { 'GoogleTV' } else { 'Unsupported' }
 if ($Platform -and $Platform -ne $actualPlatform) { throw "Se pidió $Platform pero se detectó $actualPlatform ($model)." }
 $stateDir = Join-Path $StateRoot ($Device -replace ':','_')
